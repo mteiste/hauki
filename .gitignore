@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.mypy_cache/
+.ruff_cache/
+
+# Node.js
+node_modules/
+.nodejs/
+package-lock.json
+
+# IDEs
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# MicroPython
+*.mpy
+
+# Libraries (auto-downloaded by make prepare)
+lib/
+
+# Environment
+.env
+.env.local
+
+# Local configuration
+config.mk
+config.json

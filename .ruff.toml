@@ -1,0 +1,49 @@
+# Ruff configuration for MicroPython project
+# https://docs.astral.sh/ruff/configuration/
+
+# Enable preview mode for E305 rule
+preview = true
+
+# Exclude common directories
+extend-exclude = [
+    ".venv",
+    ".nodejs",
+    "node_modules",
+    "examples",
+    "lib",
+]
+
+# Use py37 as minimum (Ruff doesn't support older versions)
+# MicroPython syntax is generally compatible
+target-version = "py37"
+
+# Line length (can adjust as needed)
+line-length = 100
+
+[lint]
+# Enable recommended rules but be lenient with MicroPython
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "I",   # isort
+]
+
+# Explicitly enable E305 for blank lines before if __name__ == "__main__"
+extend-select = ["E305"]
+
+# Ignore rules that don't work well with MicroPython
+ignore = [
+    "E402",   # Module level import not at top of file (common in MicroPython)
+    "E501",   # Line too long
+    "F401",   # Imported but unused (may be used by MicroPython runtime)
+    "F403",   # Star imports (sometimes needed for MicroPython)
+    "F405",   # Name may be undefined (MicroPython modules)
+]
+
+[format]
+# Use double quotes (Python standard)
+quote-style = "double"
+indent-style = "space"

@@ -1,0 +1,20 @@
+# Development dependencies for working with Raspberry Pi Pico
+# These are for your local machine, not for the Pico itself
+
+# Tool for uploading files to Pico via serial (CLI tool, ideal for Makefile targets)
+adafruit-ampy==1.1.0
+
+# MicroPython type stubs for Raspberry Pi Pico W (for IDE support)
+micropython-rp2-pico-w-stubs==1.20.0.post5
+
+# Python linter (fast, modern, MicroPython-friendly)
+ruff==0.15.5
+
+# Stub generator for creating type hints from Python code
+mypy==1.13.0
+
+# Font generation for MicroPython custom fonts
+freetype-py==2.4.0
+
+# HTTP library for testing Home Assistant API from host
+requests==2.31.0
