@@ -1,0 +1,56 @@
+"""
+Task scheduler for HAUKI - Raspberry Pi implementation
+"""
+import time
+
+MINUTE_INTERVAL = 60
+
+
+class TaskScheduler:
+    def __init__(self, display, health_checker, nordpool, clock):
+        self.display = display
+        self.health = health_checker
+        self.nordpool = nordpool
+        self.clock = clock
+
+        self.cheapest_1h = None
+        self.cheapest_2h = None
+        self.cheapest_4h = None
+        # 0 is the sentinel for "no valid slot yet"
+        self.last_slot = 0
+        self.last_minute_task = 0
+
+    def minute_task(self):
+        current_slot = self.nordpool.current_slot
+        if current_slot == self.last_slot:
+            return
+        self.cheapest_1h = self.nordpool.find_cheapest_window(1)
+        self.cheapest_2h = self.nordpool.find_cheapest_window(2)
+        self.cheapest_4h = self.nordpool.find_cheapest_window(4)
+        current_price = self.nordpool.get_current_price()
+        if current_price is not None:
+            self.last_slot = current_slot
+            self.display.show_price(
+                current_price,
+                self.nordpool.unit,
+                self.cheapest_1h,
+                self.cheapest_2h,
+                self.cheapest_4h,
+            )
+
+    def run(self):
+        """Main scheduler loop. Does not return under normal operation."""
+        while True:
+            self.health.check()
+
+            current_time = self.clock.now_utc()
+
+            if current_time - self.last_minute_task >= MINUTE_INTERVAL:
+                self.minute_task()
+                self.last_minute_task = current_time
+
+            current_time = self.clock.now_utc()
+            time_until_next = MINUTE_INTERVAL - (current_time - self.last_minute_task)
+            if time_until_next <= 0:
+                time_until_next = MINUTE_INTERVAL
+            time.sleep(time_until_next)
