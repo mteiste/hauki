@@ -1,0 +1,22 @@
+{
+  "timezone": {
+    "name": "Europe/Helsinki"
+  },
+  "homeassistant": {
+    "url": "http://homeassistant.local:8123",
+    "token": "your-long-lived-access-token-here",
+    "timeout": 10
+  },
+  "nordpool": {
+    "entity_id": "sensor.nordpool_kwh_fi_eur_3_10_0255",
+    "slot_duration": 900,
+    "refresh_interval": 14400
+  },
+  "display": {
+    "rst_pin": 17,
+    "dc_pin": 25,
+    "cs_pin": 8,
+    "busy_pin": 24,
+    "font_path": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+  }
+}
