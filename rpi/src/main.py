@@ -14,7 +14,6 @@ from nordpool import NordPool
 from scheduler import TaskScheduler
 from timezone import LocalTimezone
 
-
 if __name__ == "__main__":
     config = Config()
     clock = LocalTimezone(config)
