@@ -1,0 +1,181 @@
+# HAUKI Raspberry Pi 1A+ Implementation Design
+
+**Date:** 2026-05-31
+**Branch:** raspberry-pi
+**Status:** Approved
+
+## Overview
+
+Port HAUKI from Raspberry Pi Pico W (MicroPython) to Raspberry Pi 1A+ (CPython).
+The domain logic is unchanged; only the four platform seams are replaced.
+Both implementations coexist in the same repo as independent siblings under `pico/`
+and `rpi/`.
+
+## Goals
+
+- Display Nordpool electricity prices on the Waveshare 2.13" V4 e-ink display
+  driven by the Raspberry Pi 1A+ GPIO/SPI header
+- Run as a systemd service that starts on boot and restarts on failure
+- Reuse the Pico's domain logic (NordPool slot math, HA client, scheduler, exceptions)
+  without modification where possible
+
+## Non-Goals
+
+- Shared code between `pico/` and `rpi/`
+- Async/event-driven scheduler (synchronous loop is sufficient)
+- Unit tests (same stance as the Pico implementation)
+
+## Repository Structure
+
+```text
+rpi/
+├── src/
+│   ├── main.py           # Entry point
+│   ├── config.py         # Config loader
+│   ├── eink.py           # luma.epd + Pillow display driver
+│   ├── homeassistant.py  # HA REST client (requests)
+│   ├── nordpool.py       # Price data + slot math (copied from Pico)
+│   ├── timezone.py       # UTC↔local via zoneinfo
+│   ├── scheduler.py      # Interval loop
+│   ├── healthcheck.py    # HA + NordPool health checks
+│   └── exceptions.py     # Typed error hierarchy
+├── hauki.service         # systemd unit file
+├── config.json.example   # Configuration template
+├── requirements.txt      # Python dependencies
+└── Makefile              # install, lint, deploy targets
+```
+
+## Platform Seam Replacements
+
+### eink.py — Complete rewrite
+
+**Pico:** `machine.SPI` + `machine.Pin` + `framebuf.FrameBuffer` (MONO_VLSB) +
+micropython-font-to-py compiled fonts + custom `Writer` + manual buffer transpose.
+
+**RPi:** `luma.epd.device.ssd1680` (same display controller chip, Waveshare 2.13" V4)
++ `PIL.Image` / `PIL.ImageDraw` + `PIL.ImageFont.truetype` (system TTF directly).
+luma.epd owns the SPI communication and orientation; no manual buffer transformation
+needed.
+
+GPIO pins (RST, DC, CS, BUSY) must be rewired from the Pico header to the RPi 40-pin
+header; the Pico pin numbers (12, 8, 9, 13) do not carry over. Pin assignments are
+configurable in `config.json` under a `display` section. The defaults in
+`config.json.example` match Waveshare's conventional RPi wiring (BCM 17, 25, 8, 24)
+and should be adjusted to match actual wiring.
+
+`PriceDisplay` keeps its existing public interface — `show_price()`, `show_error()`,
+`show_status()` — so `scheduler.py` and `main.py` require no changes for the display.
+
+### homeassistant.py — Dependency swap
+
+Replace `mrequests.get()` with `requests.get()`. Response parsing and error handling
+are identical.
+
+### timezone.py — stdlib replacement
+
+Replace the manual DST transition arithmetic with `zoneinfo.ZoneInfo` (stdlib since
+Python 3.9). `now_utc()` and `format_local_time()` keep their signatures.
+`parse_iso_timestamp()` uses `datetime.fromisoformat()`. The timezone name comes from
+`config.json` as before; `ZoneInfo` resolves it against the system tz database.
+
+### wifi.py — Deleted
+
+Networking is owned by the OS (NetworkManager / dhcpcd). No Python WiFi management.
+
+## Boot Sequence
+
+```text
+systemd (after network-online.target)
+  └─ python3 src/main.py
+       ├─ construct Config, LocalTimezone, Display, HomeAssistant,
+       │  NordPool, HealthChecker, TaskScheduler  (once, before loop)
+       └─ loop forever:
+            scheduler.run()       ← does not return under normal operation
+            on HaukiError → show error on display, sleep 60 s, retry
+            on Exception  → show error on display, sleep 60 s, retry
+```
+
+WiFi drops and process crashes are recovered by `systemd Restart=on-failure`.
+The outer loop in `main.py` only handles transient HA/NordPool failures.
+
+## Module Change Summary
+
+| Module | Change |
+|--------|--------|
+| `eink.py` | Full rewrite (luma.epd + Pillow) |
+| `homeassistant.py` | `mrequests` → `requests` |
+| `timezone.py` | Manual DST → `zoneinfo` |
+| `main.py` | Remove WiFi/NTP steps; simplify outer loop |
+| `scheduler.py` | Remove `six_hour_task` (NTP sync) |
+| `healthcheck.py` | Remove WiFi check |
+| `config.py` | Remove WiFi section; add optional `display` GPIO section |
+| `exceptions.py` | Remove `WiFiConnectionError`, `RtcSyncError` |
+| `nordpool.py` | Copied unchanged |
+| `boot.py` | Deleted (Pico safe-mode mechanism, not applicable) |
+
+## Configuration
+
+`config.json` follows the same schema as the Pico with two changes:
+
+1. The `wifi` section is removed.
+2. A `display` section is added for GPIO pin assignments (optional; defaults to
+   Waveshare's standard RPi wiring):
+
+```json
+{
+  "timezone": {
+    "name": "Europe/Helsinki"
+  },
+  "homeassistant": {
+    "url": "http://homeassistant.local:8123",
+    "token": "your-long-lived-access-token-here",
+    "timeout": 10
+  },
+  "nordpool": {
+    "entity_id": "sensor.nordpool_kwh_fi_eur_3_10_0255",
+    "slot_duration": 900,
+    "refresh_interval": 14400
+  },
+  "display": {
+    "rst_pin": 17,
+    "dc_pin": 25,
+    "cs_pin": 8,
+    "busy_pin": 24
+  }
+}
+```
+
+`config.json` is git-ignored. `config.json.example` is the template.
+
+## Error Handling
+
+Typed `HaukiError` subclasses propagate from `scheduler.run()` to `main.py`,
+which shows the error on the display and sleeps 60 s before retrying. Unrecognised
+exceptions follow the same path. `WiFiConnectionError` and `RtcSyncError` are removed;
+those failure modes are now handled at the OS/systemd level.
+
+## systemd Service
+
+`hauki.service` runs under a dedicated `hauki` system user, starts after
+`network-online.target`, and uses `Restart=on-failure` with a short restart delay.
+The working directory is the `rpi/` checkout; `config.json` lives alongside it.
+
+## Dependencies
+
+```text
+luma.epd       # Waveshare e-ink display driver
+pillow         # Image rendering and TTF font loading
+requests       # HTTP client for Home Assistant API
+RPi.GPIO       # GPIO access (pulled in transitively by luma.epd)
+spidev         # SPI access (pulled in transitively by luma.epd)
+```
+
+## Makefile Targets
+
+| Target | Purpose |
+|--------|---------|
+| `make prepare` | Create venv, install dependencies |
+| `make lint` | Run Ruff on `src/` |
+| `make test-ha` | Validate HA API connectivity |
+| `make install` | Install and enable the systemd service |
+| `make clean` | Remove venv and caches |
