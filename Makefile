@@ -18,7 +18,11 @@ help:
 	@echo "  make test-ha        - Verify Home Assistant connectivity"
 	@echo "  make deploy         - Copy to the Pi and install there (PI_HOST=hauki)"
 	@echo "  make install        - Install and (re)start the service (run on the Pi)"
-	@echo "  make clean          - Remove venv and caches"
+	@echo "  make case-preview   - Render PNG previews of the case model to case/build/"
+	@echo "  make case-open      - Open the case model in the OpenSCAD GUI"
+	@echo "  make case-check     - Check that the case clears the hardware"
+	@echo "  make case-stl       - Export printable STL files to case/build/"
+	@echo "  make clean          - Remove venv, caches and case renders"
 
 # Development setup on the workstation: Python venv (Ruff, Pillow for the PNG preview)
 # and a local Node.js for markdownlint. Not for the Pi (no ARMv6 Node builds).
@@ -124,9 +128,40 @@ deploy:
 		./ $(PI_HOST):hauki/
 	ssh $(PI_HOST) 'cd hauki && make install'
 
+# Case model, rendered with the OpenSCAD Flatpak on the host
+OPENSCAD := flatpak run --socket=x11 --env=DISPLAY=$(or $(DISPLAY),:0) org.openscad.OpenSCAD
+CASE_MODEL := case/case.scad
+CASE_BUILD := case/build
+CASE_RENDER := --imgsize=1200,900 --viewall --autocenter --projection=ortho --colorscheme=Tomorrow
+
+.PHONY: case-preview
+case-preview:
+	@mkdir -p $(CASE_BUILD)
+	$(OPENSCAD) -o $(CASE_BUILD)/assembly.png --camera=0,0,0,60,0,25,0 $(CASE_RENDER) $(CASE_MODEL)
+	$(OPENSCAD) -o $(CASE_BUILD)/front.png --camera=0,0,0,0,0,0,0 $(CASE_RENDER) $(CASE_MODEL)
+	$(OPENSCAD) -o $(CASE_BUILD)/rear.png --camera=0,0,0,0,180,0,0 $(CASE_RENDER) $(CASE_MODEL)
+	$(OPENSCAD) -o $(CASE_BUILD)/exploded.png -D 'part="exploded"' --camera=0,0,0,65,0,30,0 $(CASE_RENDER) $(CASE_MODEL)
+	$(OPENSCAD) -o $(CASE_BUILD)/section.png -D 'part="section"' --camera=0,0,0,90,0,90,0 $(CASE_RENDER) $(CASE_MODEL)
+
+.PHONY: case-open
+case-open:
+	$(OPENSCAD) $(CASE_MODEL)
+
+# The case clears the hardware when OpenSCAD reports an empty result
+.PHONY: case-check
+case-check:
+	@mkdir -p $(CASE_BUILD)
+	$(OPENSCAD) -o $(CASE_BUILD)/clash.stl -D 'part="clash"' $(CASE_MODEL) 2>&1 | grep -E -i 'empty|Volumes|ERROR|WARNING' || true
+
+.PHONY: case-stl
+case-stl:
+	@mkdir -p $(CASE_BUILD)
+	$(OPENSCAD) -o $(CASE_BUILD)/back.stl -D 'part="back"' $(CASE_MODEL)
+	$(OPENSCAD) -o $(CASE_BUILD)/lid.stl -D 'part="lid"' $(CASE_MODEL)
+
 .PHONY: clean
 clean:
-	rm -rf $(VENV)
+	rm -rf $(VENV) $(CASE_BUILD)
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@echo "Cleanup complete"
