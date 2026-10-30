@@ -1,3 +1,2 @@
-luma.epd>=0.4.0
 Pillow>=9.0.0
 requests>=2.28.0

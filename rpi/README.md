@@ -178,7 +178,8 @@ sudo -u hauki test -w /dev/spidev0.0 -a -w /dev/gpiochip0 && echo OK
 
 The Waveshare 2.13" V4 HAT plugs straight onto the Pi's 40-pin header, so no separate
 wiring is needed. The HAT fixes the pins, and the `display` defaults in
-`config.json.example` already match it (RST=17, DC=25, CS=8/CE0, BUSY=24, BCM numbering).
+`config.json.example` already match it (RST=17, DC=25, BUSY=24, BCM numbering).
+Chip select is SPI0 CE0 (BCM 8), driven by the kernel SPI driver, so it is not configured.
 
 ## Configuration
 

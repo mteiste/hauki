@@ -15,7 +15,6 @@
   "display": {
     "rst_pin": 17,
     "dc_pin": 25,
-    "cs_pin": 8,
     "busy_pin": 24,
     "font_path": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
   }

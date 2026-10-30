@@ -1,13 +1,10 @@
 """
 E-ink display driver for HAUKI - Raspberry Pi 1A+ implementation
-Waveshare 2.13" V4 (SSD1680 controller) via luma.epd and Pillow
+Waveshare 2.13" V4 HAT: layout drawn with Pillow, sent through epd.py
 """
-from luma.core.interface.serial import spi
-from luma.epd.device import epd2in13_V3
 from PIL import Image, ImageDraw, ImageFont
 
-EPD_WIDTH = 250
-EPD_HEIGHT = 122
+from epd import EPD, HEIGHT, WIDTH, image_to_buffer
 
 FONT_PATH_DEFAULT = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 
@@ -15,15 +12,21 @@ FONT_PATH_DEFAULT = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 class Display:
     """Display manager for Waveshare 2.13" V4 e-ink display."""
 
-    def __init__(self, config):
+    def __init__(self, config, epd=None):
+        """Args:
+            config: Config object
+            epd: Object with display(buffer); defaults to the real panel. The PNG
+                preview passes its own so the same layout code runs without hardware.
+        """
         cfg = config.display_settings()
-        serial = spi(
-            port=0,
-            device=0,
-            gpio_DC=cfg.get('dc_pin', 25),
-            gpio_RST=cfg.get('rst_pin', 17),
-        )
-        self.device = epd2in13_V3(serial=serial, gpio_BUSY=cfg.get('busy_pin', 24))
+        if epd is None:
+            epd = EPD(
+                rst_pin=cfg.get('rst_pin', 17),
+                dc_pin=cfg.get('dc_pin', 25),
+                busy_pin=cfg.get('busy_pin', 24),
+            )
+            epd.init()
+        self.epd = epd
         font_path = cfg.get('font_path', FONT_PATH_DEFAULT)
         self.font48 = ImageFont.truetype(font_path, 48)
         self.font32 = ImageFont.truetype(font_path, 32)
@@ -31,7 +34,7 @@ class Display:
         self.font12 = ImageFont.truetype(font_path, 12)
 
     def _new_image(self):
-        return Image.new('1', (EPD_WIDTH, EPD_HEIGHT), 255)
+        return Image.new('1', (WIDTH, HEIGHT), 255)
 
     def show_price(self, current_price, unit, cheapest_1h, cheapest_2h, cheapest_4h):
         image = self._new_image()
@@ -52,7 +55,7 @@ class Display:
             fill=0,
         )
 
-        self.device.display(image)
+        self.epd.display(image_to_buffer(image))
 
     def show_error(self, message, details=""):
         image = self._new_image()
@@ -63,7 +66,7 @@ class Display:
         if details:
             draw.text((0, 60), details, font=self.font12, fill=0)
 
-        self.device.display(image)
+        self.epd.display(image_to_buffer(image))
 
     def show_status(self, message):
         image = self._new_image()
@@ -71,4 +74,4 @@ class Display:
 
         draw.text((0, 50), message, font=self.font14, fill=0)
 
-        self.device.display(image)
+        self.epd.display(image_to_buffer(image))
