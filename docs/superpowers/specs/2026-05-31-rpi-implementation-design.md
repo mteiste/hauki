@@ -166,6 +166,13 @@ shows the error on the display and retries just after the next full minute.
 Unrecognised exceptions follow the same path. Network and clock problems are handled
 at the OS/systemd level.
 
+The health check only fails when there is no price for the current slot. Day-ahead
+prices are final once published, and HAUKI holds them up to a day ahead, so short
+network outages (the Pi's Wi-Fi drops now and then) do not interrupt the display. A
+refresh that fails is retried every minute. Only when the prices run out does the
+error screen appear: "Could not reach HA" if HA is unreachable, otherwise "Could not
+fetch prices" with the reason.
+
 ## systemd Service
 
 `hauki.service` runs `/usr/bin/python3 src/main.py` under a dedicated `hauki` system
