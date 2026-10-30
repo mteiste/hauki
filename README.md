@@ -154,13 +154,35 @@ sudo dmesg | grep -i vchi            # no output
 
 ### 7. Reduce SD card writes
 
-Stock trixie already does the usual things:
+Check the usual measures first. On a Raspberry Pi OS (trixie) image all three are
+already in place, but they come from different places:
 
-| Measure | How to check |
-|---------|--------------|
-| Journal in RAM only | `journalctl --header \| grep 'File path'` → `/run/log/journal/...` |
-| `/tmp` in RAM | `findmnt /tmp` → `tmpfs` |
-| No atime updates | `findmnt /` → `noatime` |
+| Measure | Provided by | How to check |
+|---------|-------------|--------------|
+| Journal in RAM only | Raspberry Pi OS package `raspberrypi-sys-mods` (`Storage=volatile` drop-in) | `journalctl --header \| grep 'File path'` → `/run/log/journal/...` |
+| `/tmp` in RAM | Debian 13 `systemd` (`tmp.mount`) | `findmnt /tmp` → `tmpfs` |
+| No atime updates | `noatime` in `/etc/fstab` of the Raspberry Pi OS image | `findmnt /` → `noatime` |
+
+If the journal is written to `/var/log/journal` instead, install the package:
+
+```bash
+sudo apt install raspberrypi-sys-mods
+sudo systemctl restart systemd-journald
+```
+
+If `/` is mounted without `noatime`, edit `/etc/fstab` and add it to the options of
+the root (`/`) line, e.g. `defaults` → `defaults,noatime`:
+
+```text
+PARTUUID=xxxxxxxx-02  /  ext4  defaults,noatime  0  1
+```
+
+Then apply it without rebooting and check:
+
+```bash
+sudo mount -o remount /
+findmnt /
+```
 
 The remaining periodic writers are switched off:
 
