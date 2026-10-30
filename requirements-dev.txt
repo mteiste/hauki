@@ -1,0 +1,4 @@
+-r requirements.txt
+# Same version as the Pi's python3-pil, so PNG previews match the panel exactly
+pillow==11.1.0
+ruff

@@ -221,6 +221,20 @@ should be readable only by its owner and the `hauki` group.
 `hauki.service`) still have to be updated for the current setup. Until then,
 `make help` lists the existing targets.
 
+## Development
+
+Development happens on a workstation (x86_64 or arm64 Linux), not on the Pi:
+
+```bash
+make prepare        # .venv with Ruff + Pillow, local Node.js 22 + markdownlint
+make lint           # Ruff and markdownlint; always exits 0, read the output
+.venv/bin/python tools/display_test.py --png preview   # layout preview, no hardware
+```
+
+`make prepare` creates the venv with `uv` when it is available, and keeps Node.js in
+`.nodejs/` and markdownlint in `node_modules/`, all inside the project. Run it again
+after changing `requirements-dev.txt` or `package.json`.
+
 ## License
 
 HAUKI is licensed under GPLv3. See [LICENSE](LICENSE) for details.
