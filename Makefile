@@ -159,6 +159,7 @@ case-stl:
 	@mkdir -p $(CASE_BUILD)
 	$(OPENSCAD) -o $(CASE_BUILD)/back.stl -D 'part="back"' $(CASE_MODEL)
 	$(OPENSCAD) -o $(CASE_BUILD)/lid.stl -D 'part="lid"' $(CASE_MODEL)
+	$(OPENSCAD) -o $(CASE_BUILD)/plugs.stl -D 'part="plugs"' $(CASE_MODEL)
 
 .PHONY: clean
 clean:

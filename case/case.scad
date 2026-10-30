@@ -7,7 +7,7 @@
 include <hardware.scad>
 show_hardware = false;
 
-// assembly, exploded, section, back, lid, clash
+// assembly, exploded, section, back, lid, plugs, clash
 part = "assembly";
 
 /* [Shell] */
@@ -22,9 +22,15 @@ panel_gap = 0.8;        // Air between the glass and the lid: the lid must never
 
 /* [Mounting] */
 standoff_d = 6;
-pilot_d = 2.2;          // Self-tapping M2.5 from the front, in the lower two holes
+pilot_d = 2.2;          // For a press-in plug, or a self-tapping M2.5, in the lower two holes
 peg_d = 2.4;            // The upper two holes sit under the HAT, so they get pegs
 peg_h = 3;
+plug_tip_d = [2.1, 2.2, 2.3];   // Printed fit varies, so the plate has one of each pair
+plug_tip_h = 3;         // Leaves air under the tip: the pilot hole is 3.5 deep
+plug_neck_d = 2.6;
+plug_neck_h = 1.2;      // Just under pi_t, so the head clamps the board
+plug_head_d = 5;
+plug_head_h = 1.6;
 keyhole_spacing = 37;
 keyhole_y = 42;
 keyhole_head_d = 8.5;
@@ -260,6 +266,32 @@ module lid_for_print() {
                 lid();
 }
 
+// Origin at the underside of the head, the tip towards -Z
+module plug(tip_d) {
+    lead_in = 0.6;
+    cylinder(d = plug_head_d, h = plug_head_h);
+    translate([0, 0, -plug_neck_h])
+        cylinder(d = plug_neck_d, h = plug_neck_h + eps);
+    translate([0, 0, -plug_neck_h - plug_tip_h + lead_in])
+        cylinder(d = tip_d, h = plug_tip_h - lead_in + eps);
+    translate([0, 0, -plug_neck_h - plug_tip_h])
+        cylinder(d1 = tip_d - 0.6, d2 = tip_d, h = lead_in + eps);
+}
+
+module plugs_in_place() {
+    for (x = [pi_hole_inset, pi_w - pi_hole_inset])
+        translate([x, pi_hole_inset, pi_t])
+            plug(plug_tip_d[1]);
+}
+
+// Standing on their heads, a spare pair of each size
+module plugs_for_print() {
+    for (i = [0 : len(plug_tip_d) - 1], j = [0, 1])
+        translate([i * 8, j * 8, plug_head_h])
+            rotate([180, 0, 0])
+                plug(plug_tip_d[i]);
+}
+
 module section_cut() {
     intersection() {
         children();
@@ -271,6 +303,7 @@ module section_cut() {
 if (part == "assembly") {
     color("ivory") back();
     color("ivory") lid();
+    color("ivory") plugs_in_place();
     hardware();
 } else if (part == "exploded") {
     color("ivory") back();
@@ -287,6 +320,8 @@ if (part == "assembly") {
     back();
 } else if (part == "lid") {
     lid_for_print();
+} else if (part == "plugs") {
+    plugs_for_print();
 } else if (part == "clash") {
     // The tray is dropped a hair: the Pi touching its standoffs is not a clash
     intersection() {
