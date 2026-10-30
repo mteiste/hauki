@@ -4,6 +4,14 @@ Task scheduler for HAUKI - Raspberry Pi implementation
 import time
 
 MINUTE_INTERVAL = 60
+# Wake this long after each full minute, so a slot that starts on the minute has begun
+WAKE_OFFSET = 1
+
+
+def sleep_until_next_minute():
+    # Slot boundaries always fall on a full minute, so waking just after each one
+    # shows a new price within seconds of it starting
+    time.sleep(MINUTE_INTERVAL - time.time() % MINUTE_INTERVAL + WAKE_OFFSET)
 
 
 class TaskScheduler:
@@ -17,7 +25,6 @@ class TaskScheduler:
         self.cheapest_4h = None
         # 0 is the sentinel for "no valid slot yet"
         self.last_slot = 0
-        self.last_minute_task = 0
 
     def minute_task(self):
         current_slot = self.prices.current_slot
@@ -39,17 +46,10 @@ class TaskScheduler:
 
     def run(self):
         """Main scheduler loop. Does not return under normal operation."""
+        # run() is entered at startup and again after every error screen; forgetting
+        # the shown slot makes the price replace the error as soon as checks pass
+        self.last_slot = 0
         while True:
             self.health.check()
-
-            current_time = time.time()
-
-            if current_time - self.last_minute_task >= MINUTE_INTERVAL:
-                self.minute_task()
-                self.last_minute_task = current_time
-
-            current_time = time.time()
-            time_until_next = MINUTE_INTERVAL - (current_time - self.last_minute_task)
-            if time_until_next <= 0:
-                time_until_next = MINUTE_INTERVAL
-            time.sleep(time_until_next)
+            self.minute_task()
+            sleep_until_next_minute()

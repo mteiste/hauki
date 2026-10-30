@@ -2,7 +2,6 @@
 Entry point for HAUKI - Raspberry Pi 1A+ implementation
 """
 import sys
-import time
 import traceback
 
 from config import Config
@@ -11,7 +10,7 @@ from exceptions import HaukiError
 from healthcheck import HealthChecker
 from homeassistant import HomeAssistant
 from prices import Prices
-from scheduler import TaskScheduler
+from scheduler import TaskScheduler, sleep_until_next_minute
 
 if __name__ == "__main__":
     config = Config()
@@ -32,8 +31,8 @@ if __name__ == "__main__":
         except HaukiError as e:
             traceback.print_exc()
             display.show_error(e.message, e.detail)
-            time.sleep(60)
+            sleep_until_next_minute()
         except Exception as e:
             traceback.print_exc()
             display.show_error("Unexpected error", str(e))
-            time.sleep(60)
+            sleep_until_next_minute()
