@@ -33,15 +33,21 @@ class TaskScheduler:
         self.cheapest_1h = self.prices.find_cheapest_window(1)
         self.cheapest_2h = self.prices.find_cheapest_window(2)
         self.cheapest_4h = self.prices.find_cheapest_window(4)
-        current_price = self.prices.get_current_price()
+        current_price = self.prices.get_metering_price()
         if current_price is not None:
             self.last_slot = current_slot
+            # When the meter bills longer periods than prices change, the big number is
+            # the period average and the slot price is shown small next to it
+            slot_price = None
+            if self.prices.metering_interval != self.prices.slot_duration:
+                slot_price = self.prices.get_current_price()
             self.display.show_price(
                 current_price,
                 self.prices.unit,
                 self.cheapest_1h,
                 self.cheapest_2h,
                 self.cheapest_4h,
+                slot_price,
             )
 
     def run(self):

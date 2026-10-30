@@ -16,7 +16,8 @@ help:
 	@echo "  make lint-python    - Run Ruff on src/ and tools/"
 	@echo "  make lint-markdown  - Lint all markdown files"
 	@echo "  make test-ha        - Verify Home Assistant connectivity"
-	@echo "  make install        - Deploy systemd service (run on the RPi)"
+	@echo "  make deploy         - Copy to the Pi and install there (PI_HOST=hauki)"
+	@echo "  make install        - Install and (re)start the service (run on the Pi)"
 	@echo "  make clean          - Remove venv and caches"
 
 # Development setup on the workstation: Python venv (Ruff, Pillow for the PNG preview)
@@ -91,20 +92,37 @@ from homeassistant import HomeAssistant; \
 ha = HomeAssistant(Config()); \
 print('HA online:', ha.is_online)"
 
+# Runs on the Pi: puts the code, config and unit in place and (re)starts the service.
+# The hauki user and the OS preparation are manual steps, see README.md.
 .PHONY: install
 install:
 	@if [ ! -f config.json ]; then \
 		echo "Error: config.json not found. Copy config.json.example and edit it first."; \
 		exit 1; \
 	fi
-	sudo useradd -r -s /bin/false hauki 2>/dev/null || true
-	sudo usermod -a -G spi,gpio hauki
-	sudo cp hauki.service /etc/systemd/system/hauki.service
+	@if ! id hauki > /dev/null 2>&1; then \
+		echo "Error: user hauki does not exist. See 'Service user' in README.md."; \
+		exit 1; \
+	fi
+	sudo install -d -m 0755 /opt/hauki /opt/hauki/src
+	sudo rsync -a --delete --exclude __pycache__ --chown=root:root --chmod=D755,F644 src/ /opt/hauki/src/
+	sudo install -m 0640 -o root -g hauki config.json /opt/hauki/config.json
+	sudo install -m 0644 hauki.service /etc/systemd/system/hauki.service
 	sudo systemctl daemon-reload
 	sudo systemctl enable hauki
-	sudo systemctl start hauki
+	sudo systemctl restart hauki
 	@echo "Service installed. Check status: sudo systemctl status hauki"
 	@echo "Follow logs: sudo journalctl -u hauki -f"
+
+# Runs on the workstation: copies the working tree to ~/hauki on the Pi and installs
+# from there
+PI_HOST ?= hauki
+.PHONY: deploy
+deploy:
+	rsync -a --delete --exclude .git --exclude .venv --exclude .nodejs --exclude node_modules \
+		--exclude package-lock.json --exclude __pycache__ --exclude .ruff_cache --exclude .claude \
+		./ $(PI_HOST):hauki/
+	ssh $(PI_HOST) 'cd hauki && make install'
 
 .PHONY: clean
 clean:

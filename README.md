@@ -215,11 +215,50 @@ Set the Home Assistant `url` and long-lived `token`, and check the `prices.entit
 (`sensor.electricity_price`). `config.json` holds the token, so it is git-ignored and
 should be readable only by its owner and the `hauki` group.
 
+Set `prices.metering_interval` to match how your electricity meter reports
+consumption to the provider:
+
+| Value | Meter | Cheapest 1h/2h/4h windows start |
+|-------|-------|---------------------------------|
+| `900` | Quarter-hour metering | at any quarter (:00, :15, :30, :45) |
+| `3600` | Hourly metering | on the hour only, because each whole hour is billed at its average price |
+
+With hourly metering the large number is the current hour's average price (what this
+hour's consumption is billed at), and the current 15-minute price is shown small in
+the top-right corner, under the time slot.
+
 ## Installing the Service
 
-**In progress.** The deployment steps (`make prepare`, `make install`,
-`hauki.service`) still have to be updated for the current setup. Until then,
-`make help` lists the existing targets.
+After the OS preparation above, deploy from the workstation:
+
+```bash
+make deploy                 # or: make deploy PI_HOST=other-host
+```
+
+This copies the working tree to `~/hauki` on the Pi and runs `make install` there,
+which:
+
+- copies `src/` to `/opt/hauki/src` (owned by root, read-only for the service)
+- installs `config.json` as `/opt/hauki/config.json`, owner root, group `hauki`,
+  mode 0640, so only root and the service can read the token
+- installs `hauki.service`, enables it and (re)starts it
+
+Run `make deploy` again after every change; it restarts the service.
+
+The service runs `/usr/bin/python3 src/main.py` as the `hauki` user. There is no venv
+on the Pi: every dependency comes from the apt packages above. `lgpio`'s notification
+pipe lives in the systemd runtime directory `/run/hauki` (`LG_WD`), and no bytecode
+cache is written. systemd restarts the service 10 s after a crash and starts it at
+boot.
+
+```bash
+sudo systemctl status hauki
+sudo journalctl -u hauki -f      # errors only; a working service logs nothing
+```
+
+The display test uses the same GPIO pins, so stop the service before running
+`tools/display_test.py` on the Pi (`sudo systemctl stop hauki`), and start it again
+afterwards.
 
 ## Development
 

@@ -6,8 +6,18 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=hauki
+Group=hauki
 WorkingDirectory=/opt/hauki
-ExecStart=/opt/hauki/.venv/bin/python src/main.py
+ExecStart=/usr/bin/python3 src/main.py
+# lgpio creates a notification pipe in $LG_WD on import; /run/hauki is writable by
+# the service and cleaned up by systemd
+RuntimeDirectory=hauki
+Environment=LG_WD=/run/hauki
+# The code directory is read-only for the service, and the SD card should not get
+# bytecode cache writes
+Environment=PYTHONDONTWRITEBYTECODE=1
+# Error output reaches the journal immediately
+Environment=PYTHONUNBUFFERED=1
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

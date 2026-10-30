@@ -120,6 +120,19 @@ The parser concatenates both lists and uses `price_ct_kwh`. It ignores
 with today's auction and every slot present is a final price. It stops at the first
 gap so the slot index arithmetic stays valid.
 
+### Metering interval
+
+Cheapest windows depend on how the customer's meter reports consumption.
+`prices.metering_interval` is 900 for quarter-hour metering (windows may start at any
+slot) or 3600 for hourly metering (each whole local hour is billed at its average
+price, so windows start on the hour). The window average is the mean of its slots in
+both cases; only the allowed start times differ.
+
+The large number on the price screen is the price billed for the current metering
+period (`Prices.get_metering_price()`): the slot price with quarter-hour metering,
+the hour's average with hourly metering. When the two intervals differ, the current
+slot price is also shown small, top right under the slot time in the header.
+
 ## Configuration
 
 ```json
@@ -132,6 +145,7 @@ gap so the slot index arithmetic stays valid.
   "prices": {
     "entity_id": "sensor.electricity_price",
     "slot_duration": 900,
+    "metering_interval": 900,
     "refresh_interval": 14400
   },
   "display": {
@@ -154,10 +168,14 @@ at the OS/systemd level.
 
 ## systemd Service
 
-`hauki.service` runs under a dedicated `hauki` system user, starts after
-`network-online.target`, and uses `Restart=on-failure` with a short restart delay.
-The working directory is the repository checkout; `config.json` lives alongside it.
-The deployment steps are not finalised yet (see `README.md`).
+`hauki.service` runs `/usr/bin/python3 src/main.py` under a dedicated `hauki` system
+user, starts after `network-online.target`, and uses `Restart=on-failure` with a 10 s
+delay. The code is installed to `/opt/hauki/src` (root-owned, read-only for the
+service), and `config.json` to `/opt/hauki` (root:hauki, 0640). `RuntimeDirectory=hauki`
+with `LG_WD=/run/hauki` gives lgpio its pipe directory, and
+`PYTHONDONTWRITEBYTECODE=1` avoids bytecode writes. There is no venv on the Pi; all
+dependencies are apt packages. `make deploy` (workstation) copies the tree to the Pi
+and runs `make install` there.
 
 ## Dependencies
 
@@ -175,8 +193,9 @@ fonts-dejavu-core # Display font
 
 | Target | Purpose |
 |--------|---------|
-| `make prepare` | Create venv, install dependencies |
-| `make lint` | Run Ruff on `src/` |
+| `make prepare` | Workstation dev setup: venv with Ruff + Pillow, Node.js + markdownlint |
+| `make lint` | Run Ruff and markdownlint (always exits 0; read the output) |
 | `make test-ha` | Validate HA API connectivity |
-| `make install` | Install and enable the systemd service |
+| `make deploy` | Copy to the Pi and run `make install` there (workstation) |
+| `make install` | Install files, enable and (re)start the service (on the Pi) |
 | `make clean` | Remove venv and caches |

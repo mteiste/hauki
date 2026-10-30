@@ -25,6 +25,10 @@ class Prices:
         self.entity_id = settings['entity_id']
         self.slot_duration = settings.get('slot_duration', 900)
         self.refresh_interval = settings.get('refresh_interval', 14400)
+        # How the meter reports consumption to the electricity provider: 900 for
+        # quarter-hour metering, 3600 for hourly. With hourly metering each whole hour
+        # is billed at its average price, so windows have to start on the hour.
+        self.metering_interval = settings.get('metering_interval', 900)
         self.prices = [None]  # Slot 0 is always None
         self.prices_start_utc = None
         self.last_update_timestamp = None
@@ -103,6 +107,29 @@ class Prices:
         slot_index = self._get_slot(current_utc)
         return self.prices[slot_index]
 
+    def get_metering_price(self):
+        """Get the price billed for the current metering period.
+
+        Equals the current slot price when metering and price intervals match. With
+        hourly metering it is the average of the hour's slots, since all consumption
+        in that hour is billed at that average.
+
+        Returns:
+            float: Price in cents/kWh, or None if the period is not fully covered
+        """
+        slot = self._get_slot(time.time())
+        if slot == 0:
+            return None
+        while not self._starts_metering_period(slot):
+            slot -= 1
+            if slot == 0:
+                return None
+        slots_per_period = self.metering_interval // self.slot_duration
+        period = self.prices[slot:slot + slots_per_period]
+        if len(period) < slots_per_period:
+            return None
+        return sum(period) / slots_per_period  # type: ignore
+
     def refresh(self):
         """Refresh price data if needed.
 
@@ -152,11 +179,23 @@ class Prices:
         self.refresh()
         return self.get_current_price() is not None
 
+    def _slot_start(self, slot_index):
+        # Slot index 1 corresponds to prices_start_utc
+        return self.prices_start_utc + (slot_index - 1) * self.slot_duration
+
+    def _starts_metering_period(self, slot_index):
+        # Metering periods follow the local clock (e.g. whole local hours)
+        local = time.localtime(self._slot_start(slot_index))
+        seconds_since_midnight = local.tm_hour * 3600 + local.tm_min * 60 + local.tm_sec
+        return seconds_since_midnight % self.metering_interval == 0
+
     def find_cheapest_window(self, hours):
         """Find next cheapest continuous time window within 24 hours.
 
         Searches from the next time slot onwards, limited to windows starting
-        within the next 24 hours from now.
+        within the next 24 hours from now. Windows only start where a metering
+        period starts (every slot with quarter-hour metering, on the hour with
+        hourly metering).
 
         Args:
             hours: Duration in hours (e.g., 1, 2, or 4)
@@ -188,20 +227,20 @@ class Prices:
         if start_slot >= max_search_slot:
             return None
 
-        # Find cheapest window using sliding window
-        min_sum = sum(self.prices[start_slot:start_slot + num_slots])  # type: ignore
-        min_slot_index = start_slot
-
-        for i in range(start_slot + 1, max_search_slot):
+        min_sum = None
+        min_slot_index = None
+        for i in range(start_slot, max_search_slot):
+            if not self._starts_metering_period(i):
+                continue
             window_sum = sum(self.prices[i:i + num_slots])  # type: ignore
-
-            if window_sum < min_sum:
+            if min_sum is None or window_sum < min_sum:
                 min_sum = window_sum
                 min_slot_index = i
 
-        # Calculate timestamp for the winning slot
-        # Slot index 1 corresponds to prices_start_utc
-        slot_timestamp = self.prices_start_utc + (min_slot_index - 1) * self.slot_duration
+        if min_slot_index is None:
+            return None
+
+        slot_timestamp = self._slot_start(min_slot_index)
 
         # Local time zone and DST come from the OS (/etc/localtime)
         time_string = time.strftime('%H:%M', time.localtime(slot_timestamp))

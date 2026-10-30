@@ -45,10 +45,13 @@ HARDWARE_ONLY = {'handshake', 'clear', 'sleep'}
 PREVIEW_SCALE = 4
 
 # (name, method, args) shown in the layout stage. The "wide" case is the widest the
-# layout is sized for: every price just under 10 EUR/kWh (999.99 c/kWh).
+# layout is sized for: every price just under 10 EUR/kWh (999.99 c/kWh), including
+# the slot price shown with hourly metering.
 LAYOUT_SAMPLES = [
     ('price', 'show_price', (12.34, 'c/kWh', ('03:15', 2.15), ('02:45', 2.48), ('01:30', 3.07))),
-    ('price-wide', 'show_price', (999.99, 'c/kWh', ('23:45', 999.99), ('23:45', 999.99), ('23:45', 999.99))),
+    ('price-wide', 'show_price', (999.99, 'c/kWh', ('23:45', 999.99), ('23:45', 999.99), ('23:45', 999.99), 999.99)),
+    # Hourly metering with 15-minute prices: hour average big, current slot price small
+    ('price-metering', 'show_price', (32.64, 'c/kWh', ('00:00', 17.83), ('23:00', 18.50), ('15:00', 19.36), 30.71)),
     ('error', 'show_error', ('Could not fetch prices', 'HA entity error')),
     ('status', 'show_status', ('Starting...',)),
 ]
