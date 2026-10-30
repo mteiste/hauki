@@ -10,11 +10,6 @@ class HaukiError(RuntimeError):
         super().__init__(message)
 
 
-class NoWifiError(HaukiError):
-    def __init__(self):
-        super().__init__("Could not connect WiFi")
-
-
 class NoHomeAssistantError(HaukiError):
     def __init__(self):
         super().__init__("Could not reach HA")
@@ -23,8 +18,3 @@ class NoHomeAssistantError(HaukiError):
 class NoPricesError(HaukiError):
     def __init__(self, detail=""):
         super().__init__("Could not fetch prices", detail)
-
-
-class RtcSyncError(HaukiError):
-    def __init__(self):
-        super().__init__("Could not sync clock")

@@ -32,24 +32,15 @@ package-lock.json
 
 # IDEs
 .vscode/
-!.vscode/settings.json
-!.vscode/extensions.json
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
 
-# MicroPython
-*.mpy
-
-# Libraries (auto-downloaded by make prepare)
-lib/
-
 # Environment
 .env
 .env.local
 
 # Local configuration
-config.mk
 config.json

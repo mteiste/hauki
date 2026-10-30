@@ -1,30 +1,34 @@
 """
-Nord Pool price data for HAUKI
-Retrieves electricity price data from Home Assistant Nord Pool integration
+Electricity price data for HAUKI
+Retrieves electricity price data from the Home Assistant ENTSO-E integration
 """
+import time
+from datetime import datetime
 
 
-class NordPool:
-    """Nord Pool electricity price client.
+class Prices:
+    """Electricity price client.
 
-    Retrieves electricity price data from Home Assistant via the Nord Pool
-    integration sensor.
+    Retrieves electricity price data from Home Assistant via the ENTSO-E
+    integration sensor (entsoe_prices).
     """
 
-    def __init__(self, homeassistant, clock, config):
-        """Initialize Nord Pool client.
+    def __init__(self, homeassistant, config):
+        """Initialize price client.
 
         Args:
             homeassistant: Initialized HomeAssistant object
-            clock: LocalTimezone object for time operations
-            config: Config object with Nord Pool settings
+            config: Config object with price settings
         """
         self.ha = homeassistant
-        self.clock = clock
-        np = config.nordpool_settings()
-        self.entity_id = np['entity_id']
-        self.slot_duration = np.get('slot_duration', 900)
-        self.refresh_interval = np.get('refresh_interval', 14400)
+        settings = config.price_settings()
+        self.entity_id = settings['entity_id']
+        self.slot_duration = settings.get('slot_duration', 900)
+        self.refresh_interval = settings.get('refresh_interval', 14400)
+        # How the meter reports consumption to the electricity provider: 900 for
+        # quarter-hour metering, 3600 for hourly. With hourly metering each whole hour
+        # is billed at its average price, so windows have to start on the hour.
+        self.metering_interval = settings.get('metering_interval', 900)
         self.prices = [None]  # Slot 0 is always None
         self.prices_start_utc = None
         self.last_update_timestamp = None
@@ -66,26 +70,29 @@ class NordPool:
             return False
 
         attrs = state.get('attributes', {})
-        today = attrs.get('today', [])
-        tomorrow = attrs.get('tomorrow', [])
-        tomorrow_valid = attrs.get('tomorrow_valid', False)
-        raw_today = attrs.get('raw_today', [])
-
         self.unit = attrs.get('unit_of_measurement', 'c/kWh')
+
+        # raw_tomorrow is used regardless of tomorrow_valid: ENTSO-E publishes
+        # the first slots of the next local day with today's auction, and every
+        # slot present is a final price
+        points = attrs.get('raw_today', []) + attrs.get('raw_tomorrow', [])
 
         # Start with None sentinel
         self.prices = [None]
-        self.prices.extend(today)
+        self.prices_start_utc = None
 
-        if tomorrow and tomorrow_valid:
-            self.prices.extend(tomorrow)
+        expected_start = None
+        for point in points:
+            start = datetime.fromisoformat(point['start']).timestamp()
+            # Stop at the first gap so that slot index arithmetic stays valid
+            if expected_start is not None and start != expected_start:
+                break
+            if self.prices_start_utc is None:
+                self.prices_start_utc = start
+            self.prices.append(point['price_ct_kwh'])
+            expected_start = start + self.slot_duration
 
-        if raw_today and len(raw_today) > 0:
-            start_time_str = raw_today[0].get('start')
-            if start_time_str:
-                self.prices_start_utc = self.clock.parse_iso_timestamp(start_time_str)
-
-        self.last_update_timestamp = self.clock.now_utc()
+        self.last_update_timestamp = time.time()
         self._refresh_error = None
 
         return True
@@ -96,9 +103,32 @@ class NordPool:
         Returns:
             float: Price in cents/kWh, or None if unavailable
         """
-        current_utc = self.clock.now_utc()
+        current_utc = time.time()
         slot_index = self._get_slot(current_utc)
         return self.prices[slot_index]
+
+    def get_metering_price(self):
+        """Get the price billed for the current metering period.
+
+        Equals the current slot price when metering and price intervals match. With
+        hourly metering it is the average of the hour's slots, since all consumption
+        in that hour is billed at that average.
+
+        Returns:
+            float: Price in cents/kWh, or None if the period is not fully covered
+        """
+        slot = self._get_slot(time.time())
+        if slot == 0:
+            return None
+        while not self._starts_metering_period(slot):
+            slot -= 1
+            if slot == 0:
+                return None
+        slots_per_period = self.metering_interval // self.slot_duration
+        period = self.prices[slot:slot + slots_per_period]
+        if len(period) < slots_per_period:
+            return None
+        return sum(period) / slots_per_period  # type: ignore
 
     def refresh(self):
         """Refresh price data if needed.
@@ -110,7 +140,7 @@ class NordPool:
         if self.last_update_timestamp is None:
             return self._refresh()
 
-        current_utc = self.clock.now_utc()
+        current_utc = time.time()
         slot_index = self._get_slot(current_utc)
         # Slot 0 means no valid data (clock not synced or out of range) — skip
         # the interval check and always attempt a fresh fetch
@@ -135,7 +165,7 @@ class NordPool:
     @property
     def current_slot(self):
         """Current price slot index based on UTC time."""
-        return self._get_slot(self.clock.now_utc())
+        return self._get_slot(time.time())
 
     @property
     def available(self):
@@ -145,15 +175,27 @@ class NordPool:
             bool: True if current price is available, False otherwise
         """
         # Refresh is lazy — no network call happens until this property is read,
-        # so constructing NordPool before WiFi is connected is safe
+        # so constructing Prices before the network is up is safe
         self.refresh()
         return self.get_current_price() is not None
+
+    def _slot_start(self, slot_index):
+        # Slot index 1 corresponds to prices_start_utc
+        return self.prices_start_utc + (slot_index - 1) * self.slot_duration
+
+    def _starts_metering_period(self, slot_index):
+        # Metering periods follow the local clock (e.g. whole local hours)
+        local = time.localtime(self._slot_start(slot_index))
+        seconds_since_midnight = local.tm_hour * 3600 + local.tm_min * 60 + local.tm_sec
+        return seconds_since_midnight % self.metering_interval == 0
 
     def find_cheapest_window(self, hours):
         """Find next cheapest continuous time window within 24 hours.
 
         Searches from the next time slot onwards, limited to windows starting
-        within the next 24 hours from now.
+        within the next 24 hours from now. Windows only start where a metering
+        period starts (every slot with quarter-hour metering, on the hour with
+        hourly metering).
 
         Args:
             hours: Duration in hours (e.g., 1, 2, or 4)
@@ -167,7 +209,7 @@ class NordPool:
         num_slots = int(hours * 3600 / self.slot_duration)
 
         # Get current slot and start from next slot
-        current_utc = self.clock.now_utc()
+        current_utc = time.time()
         current_slot = self._get_slot(current_utc)
 
         if current_slot == 0:
@@ -185,22 +227,23 @@ class NordPool:
         if start_slot >= max_search_slot:
             return None
 
-        # Find cheapest window using sliding window
-        min_sum = sum(self.prices[start_slot:start_slot + num_slots])  # type: ignore
-        min_slot_index = start_slot
-
-        for i in range(start_slot + 1, max_search_slot):
+        min_sum = None
+        min_slot_index = None
+        for i in range(start_slot, max_search_slot):
+            if not self._starts_metering_period(i):
+                continue
             window_sum = sum(self.prices[i:i + num_slots])  # type: ignore
-
-            if window_sum < min_sum:
+            if min_sum is None or window_sum < min_sum:
                 min_sum = window_sum
                 min_slot_index = i
 
-        # Calculate timestamp for the winning slot
-        # Slot index 1 corresponds to prices_start_utc
-        slot_timestamp = self.prices_start_utc + (min_slot_index - 1) * self.slot_duration
+        if min_slot_index is None:
+            return None
 
-        time_string = self.clock.format_local_time(slot_timestamp)
+        slot_timestamp = self._slot_start(min_slot_index)
+
+        # Local time zone and DST come from the OS (/etc/localtime)
+        time_string = time.strftime('%H:%M', time.localtime(slot_timestamp))
 
         # Calculate average price per hour
         average_price = min_sum / num_slots

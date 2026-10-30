@@ -1,14 +1,13 @@
 {
   "name": "hauki-build-tools",
   "version": "0.0.1",
-  "description": "Build tools and linters for Hauki Pico project",
+  "description": "Build tools and linters for HAUKI",
   "private": true,
   "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=9.0.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
-    "lint:markdown": "markdownlint-cli2 '**/*.md' '#node_modules' '#.nodejs' '#.venv' '#examples' '#tools'"
+    "lint:markdown": "markdownlint-cli2 '**/*.md' '#node_modules' '#.nodejs' '#.venv'"
   },
   "devDependencies": {
     "markdownlint-cli2": "^0.17.1"

@@ -1,43 +1,23 @@
 """
-System health monitoring for HAUKI
+System health monitoring for HAUKI - Raspberry Pi implementation
 """
-from exceptions import NoHomeAssistantError, NoPricesError, NoWifiError
+from exceptions import NoHomeAssistantError, NoPricesError
 
 
 class HealthChecker:
-    """Simple health status checker
-
-    Checks components in order and raises on first failure.
-    """
-
-    def __init__(self, wifi, homeassistant, nordpool):
-        """Initialize health checker
-
-        Args:
-            wifi: WiFi object
-            homeassistant: HomeAssistant object
-            nordpool: NordPool object
-        """
-        self.wifi = wifi
+    def __init__(self, homeassistant, prices):
         self.ha = homeassistant
-        self.nordpool = nordpool
+        self.prices = prices
 
     def check(self):
-        """Check full system health.
+        """Raise if there is no price for the current slot.
 
-        Checks in order:
-        1. WiFi connection
-        2. Home Assistant availability
-        3. Current price data
-
-        Raises:
-            NoWifiError, NoHomeAssistantError, or NoPricesError
+        HA only has to be reachable when prices need fetching. Day-ahead prices are
+        final once published, so the prices already held stay valid through short
+        network outages; a failed refresh is retried on the next check.
         """
-        if not self.wifi.is_connected:
-            raise NoWifiError()
-
+        if self.prices.available:
+            return
         if not self.ha.is_online:
             raise NoHomeAssistantError()
-
-        if not self.nordpool.available:
-            raise NoPricesError(self.nordpool.unavailability_reason)
+        raise NoPricesError(self.prices.unavailability_reason)

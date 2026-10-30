@@ -1,222 +1,282 @@
 # HAUKI - Home Assistant Update Kiosk Interface
 
-HAUKI is a Raspberry Pi Pico W device that fetches hourly Nordpool electricity spot prices
-and displays them on a Waveshare 2.13" e-ink display. The practical purpose is to have a
-always-visible, at-a-glance view of the current electricity price and the cheapest 1h, 2h,
-and 4h windows ahead — making it easy to decide the best time to run high-consumption
-appliances like washing machines, dishwashers, or ovens.
+HAUKI fetches electricity spot prices from Home Assistant and shows the current price
+and the cheapest 1h, 2h and 4h windows ahead on a Waveshare 2.13" V4 e-paper display,
+driven by a Raspberry Pi 1A+. It makes it easy to pick the best time to run
+high-consumption appliances like washing machines, dishwashers, or ovens.
 
-The project is also an experiment in agent-based software development: every line of
-production code, configuration, Makefile, and documentation was written by GitHub Copilot
-(Claude Sonnet 4.6). The developer's role was architecture and direction — deciding what
-each component would do and how it would connect to the rest of the system — with no code
-typed by hand.
+Prices come from the Home Assistant
+[ENTSO-E integration](https://git.teiste.dedyn.io/mte/entsoe-prices)
+(`sensor.electricity_price`).
 
-## Why no developer code?
+## Target System
 
-This was the primary rule of the experiment, set upfront and held throughout. The motivation
-was twofold.
+| Item | Value |
+|------|-------|
+| Board | Raspberry Pi Model A Plus Rev 1.1 (256 MB, ARMv6) |
+| OS | Raspbian GNU/Linux 13 (trixie), 32-bit, headless |
+| Python | 3.13 (system) |
+| Hostname | `hauki` |
 
-First, to understand the real limitations of agent-based coding — not from a "write an
-application that does X" prompt, but from deliberate, structured use. Having seen the results
-of that kind of prompting produce unmaintainable code, the goal was to find out whether a
-disciplined, incremental approach — one class at a time, with full review before acceptance —
-could produce something worth keeping. Copilot never had the final decision on anything.
-Every implementation detail had to pass review, and many were pushed back on and revised
-until they met the project's standard.
+## OS Preparation
 
-Second, this project had been sitting in the backlog for a long time — the e-ink display was
-bought roughly a year before development started. It never got implemented because, while
-useful, it offered no real learning opportunity: the technical side of it would have been a
-routine small embedded project. Agent-based coding made it interesting again.
+These steps are done once, by hand, on a fresh Raspberry Pi OS Lite (trixie)
+install. Run them as the admin user (`mte`) over SSH. None of them is automated.
 
-## Was it worth it?
+### 1. Passwordless sudo for the admin user (optional)
 
-The final code is good enough. Left entirely to its own devices, Copilot would likely have
-produced something worse — it has a consistent tendency toward overly general, verbose, and
-resource-wasteful solutions. The quality in the end is a direct result of the developer
-staying in the loop and refusing to accept the first answer.
+Only needed for non-interactive remote administration, e.g. by a coding agent over
+SSH. Skip it if you prefer to type the sudo password.
 
-Would this approach work for a real production project? No. For a project of this scale and
-definition, with zero need for handoff to others, it worked well. The zero-developer-code
-constraint was never the point — learning the limits of the tool was.
-
-[docs/copilot.md](docs/copilot.md) traces the full development history of the project.
-It was, of course, also written by Copilot.
-
-## Was it faster?
-
-Yes and no.
-
-Yes, in the sense that this project had been sitting in the backlog for a long time with no
-sign of ever getting done. Whether that counts as "faster" is debatable, but it shipped —
-and that is the only metric that matters for a backlog item.
-
-No, in the sense of raw time. The project took around 25 hours spread across 7 days. Writing
-the same thing manually — excluding documentation — would have taken roughly 4 to 6 hours
-for a first working iteration, plus some additional hours for testing and debugging. Agent-based
-development was slower, not faster.
-
-The overhead comes from the nature of the process: every generated output has to be read,
-understood, and evaluated before it can be accepted. There is no skimming. When Copilot
-produces something subtly wrong or needlessly complex, catching it takes longer than just
-writing the correct thing directly would have. The more familiar you are with the domain,
-the more pronounced this gap becomes.
-
-## Hardware Requirements
-
-- Raspberry Pi Pico or Pico W
-- E-ink display (e.g., Waveshare, Pimoroni Inky)
-- USB cable for programming and power
-- Connection cables/headers for display
-
-## Setup
-
-1. **Configure Build Environment:**
-
-   ```bash
-   cp config.mk.example config.mk
-   # Edit config.mk and set your Pico's serial PORT and font path
-   ```
-
-2. **Configure Device Settings:**
-
-   ```bash
-   cp config.json.example config.json
-   # Edit config.json with your WiFi and Home Assistant settings
-   ```
-
-3. **Install Development Tools:**
-
-   ```bash
-   make prepare
-   ```
-
-4. **Upload Files to Pico:**
-
-   ```bash
-   make upload
-   ```
-
-## Project Structure
-
-```text
-.
-├── src/                 # Device code (uploaded to Pico)
-├── lib/                 # Generated libraries (fonts, mrequests, writer)
-├── tools/               # Development and testing scripts
-├── docs/                # Documentation
-├── config.json          # Device configuration (create from .example, not in git)
-├── config.json.example  # Template for device configuration
-├── config.mk            # Build configuration (create from .example, not in git)
-├── config.mk.example    # Template for build configuration
-└── Makefile             # Build and upload automation
+```bash
+sudo sh -c 'umask 337; echo "mte ALL=(ALL) NOPASSWD: ALL" > /tmp/010_mte-nopasswd && visudo -cf /tmp/010_mte-nopasswd && mv /tmp/010_mte-nopasswd /etc/sudoers.d/'
 ```
+
+Undo: `sudo rm /etc/sudoers.d/010_mte-nopasswd`
+
+### 2. Time zone and clock
+
+HAUKI has no time zone setting of its own. Prices arrive with UTC timestamps, and the
+"@ HH:MM" times on the display are converted with the OS local time zone
+(`/etc/localtime`), including DST. The Pi must be set to the local zone and keep its
+clock synchronised:
+
+```bash
+sudo timedatectl set-timezone Europe/Helsinki
+timedatectl
+```
+
+`timedatectl` should show `Time zone: Europe/Helsinki (EET, +0200)` (EEST, +0300 in
+summer) and `System clock synchronized: yes`. The Pi has no battery-backed clock, so
+it relies on network time (`systemd-timesyncd`, enabled by default). At boot,
+timesyncd restores the last known time, so until the first sync the clock is behind
+and the displayed price can briefly be for the wrong slot.
+
+Don't set `TZ` in the service environment: it would override `/etc/localtime`.
+
+### 3. System packages
+
+```bash
+sudo apt update
+sudo apt install fonts-dejavu-core python3-pil rsync
+```
+
+- `fonts-dejavu-core` provides `/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf`,
+  the display font.
+- `python3-pil` (Pillow) comes from apt instead of pip; building Pillow from source on
+  ARMv6 is very slow.
+- `rsync` is used to copy the code onto the Pi.
+
+Already installed on the stock image and used by HAUKI: `python3-venv`,
+`python3-spidev`, `python3-lgpio`, `python3-requests`.
+
+> `RPi.GPIO` (provided by `python3-rpi-lgpio` on trixie) does **not** work on this
+> board: it fails with `This module does not understand old-style revision codes`.
+> GPIO access has to go through the kernel GPIO character device (`/dev/gpiochip0`),
+> e.g. with `lgpio`.
+
+### 4. Boot configuration: SPI on, graphics off
+
+Edit `/boot/firmware/config.txt` (keep a backup copy):
+
+```bash
+sudo cp -p /boot/firmware/config.txt /boot/firmware/config.txt.orig
+sudo nano /boot/firmware/config.txt
+```
+
+Changes against the stock file:
+
+```diff
+-#dtparam=spi=on
++dtparam=spi=on
+...
+-camera_auto_detect=1
++#camera_auto_detect=1
+...
+-display_auto_detect=1
++#display_auto_detect=1
+...
+-dtoverlay=vc4-kms-v3d
+-max_framebuffers=2
++#dtoverlay=vc4-kms-v3d
++#max_framebuffers=2
+...
+ [all]
+ enable_uart=1
++
++# Headless: minimum GPU memory (uses start_cd.elf / fixup_cd.dat)
++gpu_mem=16
+```
+
+- `dtparam=spi=on` creates `/dev/spidev0.0` (CE0, BCM 8), used by the display.
+- Removing the KMS graphics driver and setting `gpu_mem=16` gives the memory to Linux:
+  the ARM/GPU split goes from 192/64 MB to 240/16 MB (about 221 MiB visible,
+  about 125 MiB available).
+- With `gpu_mem=16` the firmware loads the cut-down `start_cd.elf`. Check that it
+  exists in `/boot/firmware/`.
+
+### 5. Block the VideoCore camera/codec modules
+
+The cut-down firmware lacks the GPU services these drivers need. Without this step
+they load anyway and log `Failed to open VCHI service` errors at boot.
+
+```bash
+{
+  echo "# HAUKI headless: gpu_mem=16 firmware lacks the VideoCore camera/codec services"
+  for m in bcm2835_codec bcm2835_v4l2 bcm2835_isp bcm2835_mmal_vchiq vc_sm_cma; do
+    echo "blacklist $m"
+    echo "install $m /bin/false"
+  done
+} | sudo tee /etc/modprobe.d/hauki-headless.conf
+```
+
+`blacklist` alone only stops automatic loading. The `install … /bin/false` lines also
+stop the modules from being loaded as dependencies.
+
+### 6. Reboot and verify
+
+```bash
+sudo reboot
+```
+
+A Pi 1 takes about four minutes before SSH answers again. Then check:
+
+```bash
+ls -l /dev/spidev0.0                 # owned by group spi
+vcgencmd get_mem arm                 # arm=240M
+vcgencmd get_mem gpu                 # gpu=16M
+lsmod | grep -E 'vc4|mmal|vc_sm'     # no output
+sudo dmesg | grep -i vchi            # no output
+```
+
+### 7. Reduce SD card writes
+
+Stock trixie already does the usual things:
+
+| Measure | How to check |
+|---------|--------------|
+| Journal in RAM only | `journalctl --header \| grep 'File path'` → `/run/log/journal/...` |
+| `/tmp` in RAM | `findmnt /tmp` → `tmpfs` |
+| No atime updates | `findmnt /` → `noatime` |
+
+The remaining periodic writers are switched off:
+
+```bash
+# No daily apt list downloads / unattended upgrades — update by hand instead
+sudo systemctl disable --now apt-daily.timer apt-daily-upgrade.timer
+
+# No periodic zram writeback to /var/swap. Swap stays as compressed RAM (zram0).
+sudo mkdir -p /etc/rpi/swap.conf.d
+printf '# HAUKI: no periodic zram writeback to the SD card\n[Zram]\nWritebackTrigger=manual\n' \
+  | sudo tee /etc/rpi/swap.conf.d/hauki.conf
+sudo systemctl daemon-reload
+sudo systemctl stop rpi-zram-writeback.timer
+sudo systemctl reset-failed rpi-zram-writeback.timer
+```
+
+`rpi-zram-writeback.timer` is created by the `rpi-swap` generator at boot, so it can't
+be disabled with `systemctl disable`. The `WritebackTrigger=manual` drop-in stops it
+being created.
+
+With the apt timers off, update the system by hand from time to time:
+
+```bash
+sudo apt update && sudo apt upgrade
+```
+
+Undo: `sudo systemctl enable --now apt-daily.timer apt-daily-upgrade.timer` and
+`sudo rm /etc/rpi/swap.conf.d/hauki.conf && sudo systemctl daemon-reload`.
+
+### 8. Service user
+
+HAUKI runs as a dedicated system user, `hauki`. It has no home or login shell, and is
+in the `spi` and `gpio` groups, which own `/dev/spidev0.*` and `/dev/gpiochip0`:
+
+```bash
+sudo useradd --system --no-create-home --home-dir /nonexistent \
+  --shell /usr/sbin/nologin --groups spi,gpio hauki
+sudo -u hauki test -w /dev/spidev0.0 -a -w /dev/gpiochip0 && echo OK
+```
+
+## Display
+
+The Waveshare 2.13" V4 HAT plugs straight onto the Pi's 40-pin header, so no separate
+wiring is needed. The HAT fixes the pins, and the `display` defaults in
+`config.json.example` already match it (RST=17, DC=25, BUSY=24, BCM numbering).
+Chip select is SPI0 CE0 (BCM 8), driven by the kernel SPI driver, so it is not configured.
 
 ## Configuration
 
-### Build Configuration (`config.mk`)
-
-Controls the development environment, serial port, and font path:
-
-```makefile
-# Serial port for Pico connection
-PORT = /dev/ttyACM0
-
-# Font for display text (for custom fonts)
-FONT_PATH = /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+```bash
+cp config.json.example config.json
 ```
 
-### Device Configuration (`config.json`)
+Set the Home Assistant `url` and long-lived `token`, and check the `prices.entity_id`
+(`sensor.electricity_price`). `config.json` holds the token, so it is git-ignored and
+should be readable only by its owner and the `hauki` group.
 
-Runtime settings for the Pico (WiFi, timezone, Home Assistant, Nord Pool):
+Set `prices.metering_interval` to match how your electricity meter reports
+consumption to the provider:
 
-```json
-{
-  "wifi": {
-    "ssid": "YourNetworkName",
-    "password": "YourWiFiPassword",
-    "timeout": 10
-  },
-  "timezone": {
-    "name": "Europe/Helsinki",
-    "std_offset": 2,
-    "dst_offset": 3,
-    "dst_rules": {
-      "start": { "month": 3, "week": -1, "weekday": 6, "hour": 3 },
-      "end":   { "month": 10, "week": -1, "weekday": 6, "hour": 4 }
-    }
-  },
-  "homeassistant": {
-    "url": "http://homeassistant.local:8123",
-    "token": "your-long-lived-access-token-here",
-    "timeout": 10
-  },
-  "nordpool": {
-    "entity_id": "sensor.nordpool_kwh_fi_eur_3_10_0255",
-    "slot_duration": 900,
-    "refresh_interval": 14400
-  }
-}
+| Value | Meter | Cheapest 1h/2h/4h windows start |
+|-------|-------|---------------------------------|
+| `900` | Quarter-hour metering | at any quarter (:00, :15, :30, :45) |
+| `3600` | Hourly metering | on the hour only, because each whole hour is billed at its average price |
+
+With hourly metering the large number is the current hour's average price (what this
+hour's consumption is billed at), and the current 15-minute price is shown small in
+the top-right corner, under the time slot.
+
+## Installing the Service
+
+After the OS preparation above, deploy from the workstation:
+
+```bash
+make deploy                 # or: make deploy PI_HOST=other-host
 ```
 
-Both files are git-ignored for security. Use the `.example` templates to create your own.
+This copies the working tree to `~/hauki` on the Pi and runs `make install` there,
+which:
 
-See `make help` for all available commands.
+- copies `src/` to `/opt/hauki/src` (owned by root, read-only for the service)
+- installs `config.json` as `/opt/hauki/config.json`, owner root, group `hauki`,
+  mode 0640, so only root and the service can read the token
+- installs `hauki.service`, enables it and (re)starts it
 
-## Third-Party Libraries
+Run `make deploy` again after every change; it restarts the service.
 
-This project uses the following third-party libraries:
+The service runs `/usr/bin/python3 src/main.py` as the `hauki` user. There is no venv
+on the Pi: every dependency comes from the apt packages above. `lgpio`'s notification
+pipe lives in the systemd runtime directory `/run/hauki` (`LG_WD`), and no bytecode
+cache is written. systemd restarts the service 10 s after a crash and starts it at
+boot.
 
-### Waveshare Pico ePaper Driver
+```bash
+sudo systemctl status hauki
+sudo journalctl -u hauki -f      # errors only; a working service logs nothing
+```
 
-- **Source**: [Waveshare Pico_ePaper_Code](https://github.com/waveshare/Pico_ePaper_Code)
-- **License**: MIT License
-- **Usage**: E-paper display driver (refactored to `eink.py`)
-- **Attribution**: See [LICENSES/WAVESHARE](LICENSES/WAVESHARE)
+The display test uses the same GPIO pins, so stop the service before running
+`tools/display_test.py` on the Pi (`sudo systemctl stop hauki`), and start it again
+afterwards.
 
-### mrequests - HTTP Client for MicroPython
+## Development
 
-- **Source**: [SpotlightKid/mrequests](https://github.com/SpotlightKid/mrequests)
-- **License**: MIT License
-- **Usage**: HTTP client library for Home Assistant API communication
-- **Attribution**: See [LICENSES/MREQUESTS](LICENSES/MREQUESTS)
+Development happens on a workstation (x86_64 or arm64 Linux), not on the Pi:
 
-### micropython-font-to-py - Font Conversion Tools
+```bash
+make prepare        # .venv with Ruff + Pillow, local Node.js 22 + markdownlint
+make lint           # Ruff and markdownlint; always exits 0, read the output
+.venv/bin/python tools/display_test.py --png preview   # layout preview, no hardware
+```
 
-- **Source**: [peterhinch/micropython-font-to-py](https://github.com/peterhinch/micropython-font-to-py)
-- **License**: MIT License
-- **Usage**: Font conversion tools and Writer library for text rendering on e-ink display
-- **Attribution**: See [LICENSES/MICROPYTHON-FONT-TO-PY](LICENSES/MICROPYTHON-FONT-TO-PY)
-
-### DejaVu Sans - Display Font
-
-- **Source**: [dejavu-fonts.github.io](https://dejavu-fonts.github.io/)
-- **License**: Bitstream Vera Fonts License
-- **Usage**: Font used for display text, compiled into `lib/fonts/` via `make fonts`
-- **Attribution**: See [LICENSES/DEJAVU](LICENSES/DEJAVU)
-
-## Custom Fonts
-
-See [docs/fonts.md](docs/fonts.md).
+`make prepare` creates the venv with `uv` when it is available, and keeps Node.js in
+`.nodejs/` and markdownlint in `node_modules/`, all inside the project. Run it again
+after changing `requirements-dev.txt` or `package.json`.
 
 ## License
 
-This project is licensed under GPLv3. See [LICENSE](LICENSE) for details.
+HAUKI is licensed under GPLv3. See [LICENSE](LICENSE) for details.
 
-Third-party components retain their original licenses (see [LICENSES/](LICENSES/) directory).
-
-## Resources
-
-### Documentation
-
-- [Custom Fonts Guide](docs/fonts.md) - Using variable fonts and Finnish characters
-- [Hardware Documentation](docs/eink_display.md) - E-ink display driver reference
-- [Display Rendering](docs/display_rendering.md) - FrameBuffer, Writer and font interaction
-
-### External Resources
-
-- [MicroPython Documentation](https://docs.micropython.org/)
-- [Raspberry Pi Pico Python SDK](https://datasheets.raspberrypi.com/pico/raspberry-pi-pico-python-sdk.pdf)
-- [Pico Pinout](https://pico.pinout.xyz/)
-- [font-to-py Tool](https://github.com/peterhinch/micropython-font-to-py) - Font generation for MicroPython
+`src/epd.py` is derived from Waveshare's e-Paper driver (MIT); see
+[`LICENSES/WAVESHARE`](LICENSES/WAVESHARE).

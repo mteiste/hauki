@@ -1,30 +1,25 @@
-Waveshare Pico ePaper Driver
-============================
+Waveshare e-Paper Driver
+========================
 
-This project includes code derived from Waveshare's Pico ePaper driver library.
+This project includes code derived from Waveshare's e-Paper driver library.
 
-Source: https://github.com/waveshare/Pico_ePaper_Code
+Source: https://github.com/waveshareteam/e-Paper
+        (RaspberryPi_JetsonNano/python/lib/waveshare_epd/epd2in13_V4.py)
 License: MIT License (see below)
 
 Copyright Notice:
 -----------------
 Copyright (c) Waveshare team
 
-Original File: Pico_ePaper-2.13_V4.py
-Author: Waveshare team
-Function: Electronic paper driver
-
 Modified Files:
 ---------------
-- src/eink.py (refactored from Waveshare's Pico_ePaper-2.13_V4.py on 2026-03-09)
+- src/epd.py (written 2026-10-30 after Waveshare's epd2in13_V4.py)
 
 Changes:
 --------
-- Removed debug print statements
-- Fixed typos
-- Removed demo code
-- Simplified to landscape-only orientation
-- Combined duplicate methods
+- Reimplemented on spidev and lgpio instead of Waveshare's epdconfig layer
+- Kept only the full-panel init, full/fast refresh, clear and deep sleep
+- Fast waveform loaded once per full refresh instead of a separate init
 
 Full MIT License Text:
 ----------------------
