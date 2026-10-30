@@ -110,7 +110,7 @@ checks pass again.
 ## Price Source (ENTSO-E)
 
 Prices come from the `entsoe_prices` integration
-([mte/entsoe-prices](https://git.teiste.dedyn.io/mte/entsoe-prices)).
+([mteiste/entsoe-prices](https://github.com/mteiste/entsoe-prices)).
 `sensor.electricity_price` has the current price in c/kWh (VAT included) as its state.
 The price curve is in `raw_today` + `raw_tomorrow`, as 15-minute items
 `{start, end, price_eur_mwh, price_ct_kwh}` with UTC ISO timestamps.

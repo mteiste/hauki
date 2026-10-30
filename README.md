@@ -6,7 +6,7 @@ driven by a Raspberry Pi 1A+. It makes it easy to pick the best time to run
 high-consumption appliances like washing machines, dishwashers, or ovens.
 
 Prices come from the Home Assistant
-[ENTSO-E integration](https://git.teiste.dedyn.io/mte/entsoe-prices)
+[ENTSO-E integration](https://github.com/mteiste/entsoe-prices)
 (`sensor.electricity_price`).
 
 ## Target System
@@ -21,7 +21,7 @@ Prices come from the Home Assistant
 ## OS Preparation
 
 These steps are done once, by hand, on a fresh Raspberry Pi OS Lite (trixie)
-install. Run them as the admin user (`mte`) over SSH. None of them is automated.
+install. Run them as the admin user over SSH. None of them is automated.
 
 ### 1. Passwordless sudo for the admin user (optional)
 
@@ -29,10 +29,13 @@ Only needed for non-interactive remote administration, e.g. by a coding agent ov
 SSH. Skip it if you prefer to type the sudo password.
 
 ```bash
-sudo sh -c 'umask 337; echo "mte ALL=(ALL) NOPASSWD: ALL" > /tmp/010_mte-nopasswd && visudo -cf /tmp/010_mte-nopasswd && mv /tmp/010_mte-nopasswd /etc/sudoers.d/'
+u=$(id -un)
+sudo sh -c "umask 337; echo '$u ALL=(ALL) NOPASSWD: ALL' > /tmp/010_$u-nopasswd && visudo -cf /tmp/010_$u-nopasswd && mv /tmp/010_$u-nopasswd /etc/sudoers.d/"
 ```
 
-Undo: `sudo rm /etc/sudoers.d/010_mte-nopasswd`
+The user name is taken before `sudo`, so the rule is for the admin user, not root.
+
+Undo: `sudo rm /etc/sudoers.d/010_$(id -un)-nopasswd`
 
 ### 2. Time zone and clock
 
