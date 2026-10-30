@@ -30,6 +30,7 @@ class Display:
         font_path = cfg.get('font_path', FONT_PATH_DEFAULT)
         self.font48 = ImageFont.truetype(font_path, 48)
         self.font32 = ImageFont.truetype(font_path, 32)
+        self.font30 = ImageFont.truetype(font_path, 30)
         self.font14 = ImageFont.truetype(font_path, 14)
         self.font12 = ImageFont.truetype(font_path, 12)
 
@@ -40,19 +41,22 @@ class Display:
         image = self._new_image()
         draw = ImageDraw.Draw(image)
 
-        draw.text((0, 5), f"{current_price:.2f}", font=self.font48, fill=0)
-        draw.text((211, 107), unit, font=self.font14, fill=0)
+        # Positioned by baseline ('ls'/'rs' anchors). Font sizes are the largest that
+        # fit the widest value, 999.99 c/kWh: 168 + unit 43 px, 241 px and 246 px wide
+        draw.text((0, 40), f"{current_price:.2f}", font=self.font48, fill=0, anchor='ls')
+        draw.text((WIDTH - 1, 40), unit, font=self.font14, fill=0, anchor='rs')
 
         time_str, avg_price = cheapest_1h
-        draw.text((0, 70), f"{avg_price:.2f} @ {time_str}", font=self.font32, fill=0)
+        draw.text((0, 80), f"{avg_price:.2f} @ {time_str}", font=self.font30, fill=0, anchor='ls')
 
         time_str_2h, avg_price_2h = cheapest_2h
         time_str_4h, avg_price_4h = cheapest_4h
         draw.text(
-            (0, 105),
+            (0, 117),
             f"2h: {avg_price_2h:.2f} @ {time_str_2h}  4h: {avg_price_4h:.2f} @ {time_str_4h}",
             font=self.font12,
             fill=0,
+            anchor='ls',
         )
 
         self.epd.display(image_to_buffer(image))
