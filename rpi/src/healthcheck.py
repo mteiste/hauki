@@ -5,13 +5,13 @@ from exceptions import NoHomeAssistantError, NoPricesError
 
 
 class HealthChecker:
-    def __init__(self, homeassistant, nordpool):
+    def __init__(self, homeassistant, prices):
         self.ha = homeassistant
-        self.nordpool = nordpool
+        self.prices = prices
 
     def check(self):
-        """Check HA and NordPool health; raise on first failure."""
+        """Check HA and price data health; raise on first failure."""
         if not self.ha.is_online:
             raise NoHomeAssistantError()
-        if not self.nordpool.available:
-            raise NoPricesError(self.nordpool.unavailability_reason)
+        if not self.prices.available:
+            raise NoPricesError(self.prices.unavailability_reason)

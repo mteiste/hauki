@@ -7,10 +7,10 @@ MINUTE_INTERVAL = 60
 
 
 class TaskScheduler:
-    def __init__(self, display, health_checker, nordpool, clock):
+    def __init__(self, display, health_checker, prices, clock):
         self.display = display
         self.health = health_checker
-        self.nordpool = nordpool
+        self.prices = prices
         self.clock = clock
 
         self.cheapest_1h = None
@@ -21,18 +21,18 @@ class TaskScheduler:
         self.last_minute_task = 0
 
     def minute_task(self):
-        current_slot = self.nordpool.current_slot
+        current_slot = self.prices.current_slot
         if current_slot == self.last_slot:
             return
-        self.cheapest_1h = self.nordpool.find_cheapest_window(1)
-        self.cheapest_2h = self.nordpool.find_cheapest_window(2)
-        self.cheapest_4h = self.nordpool.find_cheapest_window(4)
-        current_price = self.nordpool.get_current_price()
+        self.cheapest_1h = self.prices.find_cheapest_window(1)
+        self.cheapest_2h = self.prices.find_cheapest_window(2)
+        self.cheapest_4h = self.prices.find_cheapest_window(4)
+        current_price = self.prices.get_current_price()
         if current_price is not None:
             self.last_slot = current_slot
             self.display.show_price(
                 current_price,
-                self.nordpool.unit,
+                self.prices.unit,
                 self.cheapest_1h,
                 self.cheapest_2h,
                 self.cheapest_4h,

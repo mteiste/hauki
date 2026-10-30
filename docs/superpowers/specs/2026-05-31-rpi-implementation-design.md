@@ -13,10 +13,10 @@ and `rpi/`.
 
 ## Goals
 
-- Display Nordpool electricity prices on the Waveshare 2.13" V4 e-ink display
+- Display electricity spot prices (from the Home Assistant ENTSO-E integration) on the Waveshare 2.13" V4 e-ink display
   driven by the Raspberry Pi 1A+ GPIO/SPI header
 - Run as a systemd service that starts on boot and restarts on failure
-- Reuse the Pico's domain logic (NordPool slot math, HA client, scheduler, exceptions)
+- Reuse the Pico's domain logic (price slot math, HA client, scheduler, exceptions)
   without modification where possible
 
 ## Non-Goals
@@ -34,10 +34,10 @@ rpi/
 │   ├── config.py         # Config loader
 │   ├── eink.py           # luma.epd + Pillow display driver
 │   ├── homeassistant.py  # HA REST client (requests)
-│   ├── nordpool.py       # Price data + slot math (copied from Pico)
+│   ├── prices.py         # Price data + slot math (Pico nordpool.py, adapted to ENTSO-E)
 │   ├── timezone.py       # UTC↔local via zoneinfo
 │   ├── scheduler.py      # Interval loop
-│   ├── healthcheck.py    # HA + NordPool health checks
+│   ├── healthcheck.py    # HA + price data health checks
 │   └── exceptions.py     # Typed error hierarchy
 ├── hauki.service         # systemd unit file
 ├── config.json.example   # Configuration template
@@ -88,7 +88,7 @@ Networking is owned by the OS (NetworkManager / dhcpcd). No Python WiFi manageme
 systemd (after network-online.target)
   └─ python3 src/main.py
        ├─ construct Config, LocalTimezone, Display, HomeAssistant,
-       │  NordPool, HealthChecker, TaskScheduler  (once, before loop)
+       │  Prices, HealthChecker, TaskScheduler  (once, before loop)
        └─ loop forever:
             scheduler.run()       ← does not return under normal operation
             on HaukiError → show error on display, sleep 60 s, retry
@@ -96,7 +96,7 @@ systemd (after network-online.target)
 ```
 
 WiFi drops and process crashes are recovered by `systemd Restart=on-failure`.
-The outer loop in `main.py` only handles transient HA/NordPool failures.
+The outer loop in `main.py` only handles transient HA/price data failures.
 
 ## Module Change Summary
 
@@ -110,8 +110,25 @@ The outer loop in `main.py` only handles transient HA/NordPool failures.
 | `healthcheck.py` | Remove WiFi check |
 | `config.py` | Remove WiFi section; add optional `display` GPIO section |
 | `exceptions.py` | Remove `WiFiConnectionError`, `RtcSyncError` |
-| `nordpool.py` | Copied unchanged |
+| `prices.py` | Pico `nordpool.py` renamed; parser reads the ENTSO-E sensor (see below) |
 | `boot.py` | Deleted (Pico safe-mode mechanism, not applicable) |
+
+## Price Source (ENTSO-E)
+
+*Added 2026-10-30.* Home Assistant switched from the Nord Pool integration to
+`entsoe_prices` ([mte/entsoe-prices](https://git.teiste.dedyn.io/mte/entsoe-prices)),
+so `nordpool.py` was renamed `prices.py` (class `Prices`) and its parser rewritten.
+
+`sensor.electricity_price` has the current price in c/kWh (VAT included) as its state.
+Unlike Nord Pool it has no flat `today`/`tomorrow` lists; the curve is only in
+`raw_today` + `raw_tomorrow`, as 15-minute items
+`{start, end, price_eur_mwh, price_ct_kwh}` with UTC ISO timestamps.
+
+The parser concatenates both lists and uses `price_ct_kwh`. It ignores
+`tomorrow_valid`, because ENTSO-E publishes the first slots of the next local day
+with today's auction and every slot present is a final price. It stops at the first
+gap so the slot index arithmetic stays valid. The slot math and cheapest-window
+search are unchanged.
 
 ## Configuration
 
@@ -131,8 +148,8 @@ The outer loop in `main.py` only handles transient HA/NordPool failures.
     "token": "your-long-lived-access-token-here",
     "timeout": 10
   },
-  "nordpool": {
-    "entity_id": "sensor.nordpool_kwh_fi_eur_3_10_0255",
+  "prices": {
+    "entity_id": "sensor.electricity_price",
     "slot_duration": 900,
     "refresh_interval": 14400
   },

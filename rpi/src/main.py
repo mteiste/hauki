@@ -10,7 +10,7 @@ from eink import Display
 from exceptions import HaukiError
 from healthcheck import HealthChecker
 from homeassistant import HomeAssistant
-from nordpool import NordPool
+from prices import Prices
 from scheduler import TaskScheduler
 from timezone import LocalTimezone
 
@@ -19,9 +19,9 @@ if __name__ == "__main__":
     clock = LocalTimezone(config)
     display = Display(config)
     ha = HomeAssistant(config)
-    nordpool = NordPool(ha, clock, config)
-    health = HealthChecker(ha, nordpool)
-    scheduler = TaskScheduler(display, health, nordpool, clock)
+    prices = Prices(ha, clock, config)
+    health = HealthChecker(ha, prices)
+    scheduler = TaskScheduler(display, health, prices, clock)
 
     display.show_status("Starting...")
 

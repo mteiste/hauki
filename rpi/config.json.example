@@ -7,8 +7,8 @@
     "token": "your-long-lived-access-token-here",
     "timeout": 10
   },
-  "nordpool": {
-    "entity_id": "sensor.nordpool_kwh_fi_eur_3_10_0255",
+  "prices": {
+    "entity_id": "sensor.electricity_price",
     "slot_duration": 900,
     "refresh_interval": 14400
   },

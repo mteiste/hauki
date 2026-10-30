@@ -1,30 +1,30 @@
 """
-Nord Pool price data for HAUKI
-Retrieves electricity price data from Home Assistant Nord Pool integration
+Electricity price data for HAUKI
+Retrieves electricity price data from the Home Assistant ENTSO-E integration
 """
 
 
-class NordPool:
-    """Nord Pool electricity price client.
+class Prices:
+    """Electricity price client.
 
-    Retrieves electricity price data from Home Assistant via the Nord Pool
-    integration sensor.
+    Retrieves electricity price data from Home Assistant via the ENTSO-E
+    integration sensor (entsoe_prices).
     """
 
     def __init__(self, homeassistant, clock, config):
-        """Initialize Nord Pool client.
+        """Initialize price client.
 
         Args:
             homeassistant: Initialized HomeAssistant object
             clock: LocalTimezone object for time operations
-            config: Config object with Nord Pool settings
+            config: Config object with price settings
         """
         self.ha = homeassistant
         self.clock = clock
-        np = config.nordpool_settings()
-        self.entity_id = np['entity_id']
-        self.slot_duration = np.get('slot_duration', 900)
-        self.refresh_interval = np.get('refresh_interval', 14400)
+        settings = config.price_settings()
+        self.entity_id = settings['entity_id']
+        self.slot_duration = settings.get('slot_duration', 900)
+        self.refresh_interval = settings.get('refresh_interval', 14400)
         self.prices = [None]  # Slot 0 is always None
         self.prices_start_utc = None
         self.last_update_timestamp = None
@@ -66,24 +66,27 @@ class NordPool:
             return False
 
         attrs = state.get('attributes', {})
-        today = attrs.get('today', [])
-        tomorrow = attrs.get('tomorrow', [])
-        tomorrow_valid = attrs.get('tomorrow_valid', False)
-        raw_today = attrs.get('raw_today', [])
-
         self.unit = attrs.get('unit_of_measurement', 'c/kWh')
+
+        # raw_tomorrow is used regardless of tomorrow_valid: ENTSO-E publishes
+        # the first slots of the next local day with today's auction, and every
+        # slot present is a final price
+        points = attrs.get('raw_today', []) + attrs.get('raw_tomorrow', [])
 
         # Start with None sentinel
         self.prices = [None]
-        self.prices.extend(today)
+        self.prices_start_utc = None
 
-        if tomorrow and tomorrow_valid:
-            self.prices.extend(tomorrow)
-
-        if raw_today and len(raw_today) > 0:
-            start_time_str = raw_today[0].get('start')
-            if start_time_str:
-                self.prices_start_utc = self.clock.parse_iso_timestamp(start_time_str)
+        expected_start = None
+        for point in points:
+            start = self.clock.parse_iso_timestamp(point['start'])
+            # Stop at the first gap so that slot index arithmetic stays valid
+            if expected_start is not None and start != expected_start:
+                break
+            if self.prices_start_utc is None:
+                self.prices_start_utc = start
+            self.prices.append(point['price_ct_kwh'])
+            expected_start = start + self.slot_duration
 
         self.last_update_timestamp = self.clock.now_utc()
         self._refresh_error = None
@@ -145,7 +148,7 @@ class NordPool:
             bool: True if current price is available, False otherwise
         """
         # Refresh is lazy — no network call happens until this property is read,
-        # so constructing NordPool before WiFi is connected is safe
+        # so constructing Prices before the network is up is safe
         self.refresh()
         return self.get_current_price() is not None
 

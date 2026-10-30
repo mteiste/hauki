@@ -18,8 +18,8 @@ class Config:
     def homeassistant_settings(self):
         return self._config['homeassistant']
 
-    def nordpool_settings(self):
-        return self._config['nordpool']
+    def price_settings(self):
+        return self._config['prices']
 
     def display_settings(self):
         return self._config.get('display', {})
