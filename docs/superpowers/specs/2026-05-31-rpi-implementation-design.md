@@ -1,87 +1,86 @@
 # HAUKI Raspberry Pi 1A+ Implementation Design
 
-**Date:** 2026-05-31
+**Date:** 2026-05-31 (revised 2026-10-30)
 **Branch:** raspberry-pi
 **Status:** Approved
 
 ## Overview
 
-Port HAUKI from Raspberry Pi Pico W (MicroPython) to Raspberry Pi 1A+ (CPython).
-The domain logic is unchanged; only the four platform seams are replaced.
-Both implementations coexist in the same repo as independent siblings under `pico/`
-and `rpi/`.
+HAUKI runs on a Raspberry Pi 1A+ (CPython) with a Waveshare 2.13" V4 e-paper HAT. It
+reads electricity spot prices from Home Assistant and shows the current price and the
+cheapest 1h, 2h and 4h windows ahead.
 
 ## Goals
 
-- Display electricity spot prices (from the Home Assistant ENTSO-E integration) on the Waveshare 2.13" V4 e-ink display
-  driven by the Raspberry Pi 1A+ GPIO/SPI header
+- Display electricity spot prices (from the Home Assistant ENTSO-E integration) on the
+  Waveshare 2.13" V4 e-ink display on the Raspberry Pi 1A+ GPIO/SPI header
 - Run as a systemd service that starts on boot and restarts on failure
-- Reuse the Pico's domain logic (price slot math, HA client, scheduler, exceptions)
-  without modification where possible
 
 ## Non-Goals
 
-- Shared code between `pico/` and `rpi/`
 - Async/event-driven scheduler (synchronous loop is sufficient)
-- Unit tests (same stance as the Pico implementation)
+- Unit tests
 
 ## Repository Structure
 
 ```text
-rpi/
+.
 ├── src/
-│   ├── main.py           # Entry point
+│   ├── main.py           # Entry point, outer error loop
 │   ├── config.py         # Config loader
-│   ├── eink.py           # luma.epd + Pillow display driver
+│   ├── eink.py           # Screen layouts, drawn with Pillow
+│   ├── epd.py            # Low-level e-paper driver (spidev + lgpio)
 │   ├── homeassistant.py  # HA REST client (requests)
-│   ├── prices.py         # Price data + slot math (Pico nordpool.py, adapted to ENTSO-E)
-│   ├── scheduler.py      # Interval loop
+│   ├── prices.py         # Price data, slot math, cheapest-window search
+│   ├── scheduler.py      # Minute-aligned loop
 │   ├── healthcheck.py    # HA + price data health checks
 │   └── exceptions.py     # Typed error hierarchy
+├── tools/
+│   └── display_test.py   # Staged panel test, PNG preview without hardware
+├── LICENSES/             # Third-party licenses
 ├── hauki.service         # systemd unit file
 ├── config.json.example   # Configuration template
 ├── requirements.txt      # Python dependencies
 └── Makefile              # install, lint, deploy targets
 ```
 
-## Platform Seam Replacements
+## Platform Integration
 
-### eink.py — Complete rewrite
+### Display: eink.py and epd.py
 
-**Pico:** `machine.SPI` + `machine.Pin` + `framebuf.FrameBuffer` (MONO_VLSB) +
-micropython-font-to-py compiled fonts + custom `Writer` + manual buffer transpose.
+`epd.py` drives the SSD1680 controller directly. SPI goes through `spidev` on SPI0
+CE0, and the kernel drives chip select. RST, DC and BUSY go through `lgpio` on
+`/dev/gpiochip0`. `RPi.GPIO` cannot be used: it rejects the Pi 1A+'s old-style revision
+code. `lgpio` is imported only when the panel is opened, because it creates a
+notification pipe in `$LG_WD` (or the working directory) on import.
 
-**RPi:** `luma.epd.device.ssd1680` (same display controller chip, Waveshare 2.13" V4)
-+ `PIL.Image` / `PIL.ImageDraw` + `PIL.ImageFont.truetype` (system TTF directly).
-luma.epd owns the SPI communication and orientation; no manual buffer transformation
-needed.
+The RAM layout follows Waveshare's Raspberry Pi driver for the HAT: data entry mode
+`0x03`, rows of 16 bytes (122 px padded), and the landscape image rotated 90 degrees.
+Updates use a full refresh (`0xF7`) every 10th time and a fast refresh (`0xC7`)
+otherwise. The fast refresh needs the fast OTP waveform, which is loaded by writing a
+fake 100 °C temperature after each full refresh. Measured: full 2.27 s, fast 1.75 s.
 
-GPIO pins (RST, DC, CS, BUSY) must be rewired from the Pico header to the RPi 40-pin
-header; the Pico pin numbers (12, 8, 9, 13) do not carry over. Pin assignments are
-configurable in `config.json` under a `display` section. The defaults in
-`config.json.example` match Waveshare's conventional RPi wiring (BCM 17, 25, 8, 24)
-and should be adjusted to match actual wiring.
+`eink.py` draws the screens (`show_price()`, `show_error()`, `show_status()`) with
+Pillow and DejaVu Sans TTF, and passes the RAM buffer to an `epd` object. The PNG
+preview in `tools/display_test.py` passes its own object, so layouts can be checked
+on a workstation without hardware. The price layout is sized for prices up to
+999.99 c/kWh.
 
-`PriceDisplay` keeps its existing public interface — `show_price()`, `show_error()`,
-`show_status()` — so `scheduler.py` and `main.py` require no changes for the display.
+The HAT plugs onto the 40-pin header. RST, DC and BUSY are configurable in the
+`display` section of `config.json`, with defaults matching the HAT (BCM 17, 25, 24).
 
-### homeassistant.py — Dependency swap
+### Time
 
-Replace `mrequests.get()` with `requests.get()`. Response parsing and error handling
-are identical.
-
-### timezone.py — Deleted
-
-*Revised 2026-10-30.* The OS owns the clock (network time) and the local time zone
-(`/etc/localtime`, including DST), and ENTSO-E timestamps are UTC. So no time zone code
-or config is needed: `prices.py` and `scheduler.py` use `time.time()`,
+The OS owns the clock (network time) and the local time zone (`/etc/localtime`,
+including DST), and ENTSO-E timestamps are UTC. So there is no time zone code or
+config: `prices.py` and `scheduler.py` use `time.time()`,
 `datetime.fromisoformat(...).timestamp()` and
 `time.strftime('%H:%M', time.localtime(ts))` directly. The Pi's time zone must be set
-correctly (see `rpi/README.md`).
+correctly (see `README.md`).
 
-### wifi.py — Deleted
+### Networking
 
-Networking is owned by the OS (NetworkManager / dhcpcd). No Python WiFi management.
+Networking is owned by the OS. HAUKI has no network management of its own.
 
 ## Boot Sequence
 
@@ -92,54 +91,36 @@ systemd (after network-online.target)
        │  Prices, HealthChecker, TaskScheduler  (once, before loop)
        └─ loop forever:
             scheduler.run()       ← does not return under normal operation
-            on HaukiError → show error on display, sleep 60 s, retry
-            on Exception  → show error on display, sleep 60 s, retry
+            on HaukiError → show error on display, wait until next minute, retry
+            on Exception  → show error on display, wait until next minute, retry
 ```
 
-WiFi drops and process crashes are recovered by `systemd Restart=on-failure`.
+Network drops and process crashes are recovered by `systemd Restart=on-failure`.
 The outer loop in `main.py` only handles transient HA/price data failures.
 
-## Module Change Summary
+## Scheduler
 
-| Module | Change |
-|--------|--------|
-| `eink.py` | Full rewrite (luma.epd + Pillow) |
-| `homeassistant.py` | `mrequests` → `requests` |
-| `timezone.py` | Deleted; the OS local time zone is used directly |
-| `main.py` | Remove WiFi/NTP steps; simplify outer loop |
-| `scheduler.py` | Remove `six_hour_task` (NTP sync) |
-| `healthcheck.py` | Remove WiFi check |
-| `config.py` | Remove WiFi section; add optional `display` GPIO section |
-| `exceptions.py` | Remove `WiFiConnectionError`, `RtcSyncError` |
-| `prices.py` | Pico `nordpool.py` renamed; parser reads the ENTSO-E sensor (see below) |
-| `boot.py` | Deleted (Pico safe-mode mechanism, not applicable) |
+`scheduler.run()` wakes 1 s after every full minute (`sleep_until_next_minute()`).
+On each pass it runs the health check, and redraws when the 15-minute slot has
+changed. Slot boundaries fall on full minutes, so a new price shows within seconds
+of its quarter starting, and slow passes do not drift. `run()` forgets the last shown
+slot when it is entered, so after an error screen the price is redrawn as soon as the
+checks pass again.
 
 ## Price Source (ENTSO-E)
 
-*Added 2026-10-30.* Home Assistant switched from the Nord Pool integration to
-`entsoe_prices` ([mte/entsoe-prices](https://git.teiste.dedyn.io/mte/entsoe-prices)),
-so `nordpool.py` was renamed `prices.py` (class `Prices`) and its parser rewritten.
-
+Prices come from the `entsoe_prices` integration
+([mte/entsoe-prices](https://git.teiste.dedyn.io/mte/entsoe-prices)).
 `sensor.electricity_price` has the current price in c/kWh (VAT included) as its state.
-Unlike Nord Pool it has no flat `today`/`tomorrow` lists; the curve is only in
-`raw_today` + `raw_tomorrow`, as 15-minute items
+The price curve is in `raw_today` + `raw_tomorrow`, as 15-minute items
 `{start, end, price_eur_mwh, price_ct_kwh}` with UTC ISO timestamps.
 
 The parser concatenates both lists and uses `price_ct_kwh`. It ignores
 `tomorrow_valid`, because ENTSO-E publishes the first slots of the next local day
 with today's auction and every slot present is a final price. It stops at the first
-gap so the slot index arithmetic stays valid. The slot math and cheapest-window
-search are unchanged.
+gap so the slot index arithmetic stays valid.
 
 ## Configuration
-
-`config.json` follows the same schema as the Pico with these changes:
-
-1. The `wifi` section is removed.
-2. The `timezone` section is removed (the OS time zone is used).
-3. `nordpool` is renamed `prices` and points at the ENTSO-E sensor.
-4. A `display` section is added for GPIO pin assignments (optional; defaults to
-   Waveshare's standard RPi wiring):
 
 ```json
 {
@@ -156,8 +137,8 @@ search are unchanged.
   "display": {
     "rst_pin": 17,
     "dc_pin": 25,
-    "cs_pin": 8,
-    "busy_pin": 24
+    "busy_pin": 24,
+    "font_path": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
   }
 }
 ```
@@ -166,25 +147,28 @@ search are unchanged.
 
 ## Error Handling
 
-Typed `HaukiError` subclasses propagate from `scheduler.run()` to `main.py`,
-which shows the error on the display and sleeps 60 s before retrying. Unrecognised
-exceptions follow the same path. `WiFiConnectionError` and `RtcSyncError` are removed;
-those failure modes are now handled at the OS/systemd level.
+Typed `HaukiError` subclasses propagate from `scheduler.run()` to `main.py`, which
+shows the error on the display and retries just after the next full minute.
+Unrecognised exceptions follow the same path. Network and clock problems are handled
+at the OS/systemd level.
 
 ## systemd Service
 
 `hauki.service` runs under a dedicated `hauki` system user, starts after
 `network-online.target`, and uses `Restart=on-failure` with a short restart delay.
-The working directory is the `rpi/` checkout; `config.json` lives alongside it.
+The working directory is the repository checkout; `config.json` lives alongside it.
+The deployment steps are not finalised yet (see `README.md`).
 
 ## Dependencies
 
+All from Raspbian apt packages:
+
 ```text
-luma.epd       # Waveshare e-ink display driver
-pillow         # Image rendering and TTF font loading
-requests       # HTTP client for Home Assistant API
-RPi.GPIO       # GPIO access (pulled in transitively by luma.epd)
-spidev         # SPI access (pulled in transitively by luma.epd)
+python3-pil       # Image rendering and TTF font loading
+python3-requests  # HTTP client for Home Assistant API
+python3-spidev    # SPI access
+python3-lgpio     # GPIO access via /dev/gpiochip0
+fonts-dejavu-core # Display font
 ```
 
 ## Makefile Targets

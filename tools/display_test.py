@@ -15,7 +15,7 @@ With --png the panel is replaced by a preview that decodes each RAM buffer back
 to an image and saves it, so layout work needs no Pi. Hardware-only stages
 (handshake, clear, sleep) are skipped in that mode.
 
-Usage (from rpi/):
+Usage (from the repository root):
     python3 tools/display_test.py                       # all stages on the Pi
     python3 tools/display_test.py geometry layout       # selected stages
     .venv/bin/python tools/display_test.py --png preview    # workstation preview

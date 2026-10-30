@@ -6,8 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=hauki
-WorkingDirectory=/opt/hauki/rpi
-ExecStart=/opt/hauki/rpi/.venv/bin/python src/main.py
+WorkingDirectory=/opt/hauki
+ExecStart=/opt/hauki/.venv/bin/python src/main.py
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

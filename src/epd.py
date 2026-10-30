@@ -2,8 +2,7 @@
 Low-level driver for the Waveshare 2.13" V4 e-paper HAT (SSD1680 controller)
 SPI via spidev (kernel driver owns CS/CE0); RST, DC and BUSY via lgpio
 
-Command sequence derived from the Waveshare 2.13" V4 drivers
-(see pico/LICENSES/WAVESHARE).
+Command sequence derived from Waveshare's epd2in13_V4.py (see LICENSES/WAVESHARE).
 """
 import time
 
@@ -44,8 +43,8 @@ def buffer_to_image(buffer):
 class EPD:
     """Waveshare 2.13" V4 panel on SPI0 CE0 and gpiochip0."""
 
-    # Full refresh every N fast refreshes to clear ghosting; 10 was found empirically
-    # on the Pico with the same panel
+    # Full refresh every N fast refreshes to clear ghosting; 10 is an empirical value
+    # for this panel
     REFRESH_THRESHOLD = 10
 
     def __init__(self, rst_pin, dc_pin, busy_pin, spi_speed_hz=4_000_000):
