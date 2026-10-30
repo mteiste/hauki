@@ -125,6 +125,7 @@ PI_HOST ?= hauki
 deploy:
 	rsync -a --delete --exclude .git --exclude .venv --exclude .nodejs --exclude node_modules \
 		--exclude package-lock.json --exclude __pycache__ --exclude .ruff_cache --exclude .claude \
+		--exclude case --exclude docs \
 		./ $(PI_HOST):hauki/
 	ssh $(PI_HOST) 'cd hauki && make install'
 
