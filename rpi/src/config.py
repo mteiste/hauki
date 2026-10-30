@@ -12,9 +12,6 @@ class Config:
         with open(path) as f:
             self._config = json.load(f)
 
-    def timezone_settings(self):
-        return self._config['timezone']
-
     def homeassistant_settings(self):
         return self._config['homeassistant']
 

@@ -12,16 +12,14 @@ from healthcheck import HealthChecker
 from homeassistant import HomeAssistant
 from prices import Prices
 from scheduler import TaskScheduler
-from timezone import LocalTimezone
 
 if __name__ == "__main__":
     config = Config()
-    clock = LocalTimezone(config)
     display = Display(config)
     ha = HomeAssistant(config)
-    prices = Prices(ha, clock, config)
+    prices = Prices(ha, config)
     health = HealthChecker(ha, prices)
-    scheduler = TaskScheduler(display, health, prices, clock)
+    scheduler = TaskScheduler(display, health, prices)
 
     display.show_status("Starting...")
 

@@ -1,7 +1,4 @@
 {
-  "timezone": {
-    "name": "Europe/Helsinki"
-  },
   "homeassistant": {
     "url": "http://homeassistant.local:8123",
     "token": "your-long-lived-access-token-here",

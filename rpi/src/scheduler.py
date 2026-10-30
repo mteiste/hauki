@@ -7,11 +7,10 @@ MINUTE_INTERVAL = 60
 
 
 class TaskScheduler:
-    def __init__(self, display, health_checker, prices, clock):
+    def __init__(self, display, health_checker, prices):
         self.display = display
         self.health = health_checker
         self.prices = prices
-        self.clock = clock
 
         self.cheapest_1h = None
         self.cheapest_2h = None
@@ -43,13 +42,13 @@ class TaskScheduler:
         while True:
             self.health.check()
 
-            current_time = self.clock.now_utc()
+            current_time = time.time()
 
             if current_time - self.last_minute_task >= MINUTE_INTERVAL:
                 self.minute_task()
                 self.last_minute_task = current_time
 
-            current_time = self.clock.now_utc()
+            current_time = time.time()
             time_until_next = MINUTE_INTERVAL - (current_time - self.last_minute_task)
             if time_until_next <= 0:
                 time_until_next = MINUTE_INTERVAL

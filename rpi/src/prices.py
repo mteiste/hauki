@@ -2,6 +2,8 @@
 Electricity price data for HAUKI
 Retrieves electricity price data from the Home Assistant ENTSO-E integration
 """
+import time
+from datetime import datetime
 
 
 class Prices:
@@ -11,16 +13,14 @@ class Prices:
     integration sensor (entsoe_prices).
     """
 
-    def __init__(self, homeassistant, clock, config):
+    def __init__(self, homeassistant, config):
         """Initialize price client.
 
         Args:
             homeassistant: Initialized HomeAssistant object
-            clock: LocalTimezone object for time operations
             config: Config object with price settings
         """
         self.ha = homeassistant
-        self.clock = clock
         settings = config.price_settings()
         self.entity_id = settings['entity_id']
         self.slot_duration = settings.get('slot_duration', 900)
@@ -79,7 +79,7 @@ class Prices:
 
         expected_start = None
         for point in points:
-            start = self.clock.parse_iso_timestamp(point['start'])
+            start = datetime.fromisoformat(point['start']).timestamp()
             # Stop at the first gap so that slot index arithmetic stays valid
             if expected_start is not None and start != expected_start:
                 break
@@ -88,7 +88,7 @@ class Prices:
             self.prices.append(point['price_ct_kwh'])
             expected_start = start + self.slot_duration
 
-        self.last_update_timestamp = self.clock.now_utc()
+        self.last_update_timestamp = time.time()
         self._refresh_error = None
 
         return True
@@ -99,7 +99,7 @@ class Prices:
         Returns:
             float: Price in cents/kWh, or None if unavailable
         """
-        current_utc = self.clock.now_utc()
+        current_utc = time.time()
         slot_index = self._get_slot(current_utc)
         return self.prices[slot_index]
 
@@ -113,7 +113,7 @@ class Prices:
         if self.last_update_timestamp is None:
             return self._refresh()
 
-        current_utc = self.clock.now_utc()
+        current_utc = time.time()
         slot_index = self._get_slot(current_utc)
         # Slot 0 means no valid data (clock not synced or out of range) — skip
         # the interval check and always attempt a fresh fetch
@@ -138,7 +138,7 @@ class Prices:
     @property
     def current_slot(self):
         """Current price slot index based on UTC time."""
-        return self._get_slot(self.clock.now_utc())
+        return self._get_slot(time.time())
 
     @property
     def available(self):
@@ -170,7 +170,7 @@ class Prices:
         num_slots = int(hours * 3600 / self.slot_duration)
 
         # Get current slot and start from next slot
-        current_utc = self.clock.now_utc()
+        current_utc = time.time()
         current_slot = self._get_slot(current_utc)
 
         if current_slot == 0:
@@ -203,7 +203,8 @@ class Prices:
         # Slot index 1 corresponds to prices_start_utc
         slot_timestamp = self.prices_start_utc + (min_slot_index - 1) * self.slot_duration
 
-        time_string = self.clock.format_local_time(slot_timestamp)
+        # Local time zone and DST come from the OS (/etc/localtime)
+        time_string = time.strftime('%H:%M', time.localtime(slot_timestamp))
 
         # Calculate average price per hour
         average_price = min_sum / num_slots

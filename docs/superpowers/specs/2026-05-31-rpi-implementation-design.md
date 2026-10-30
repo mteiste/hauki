@@ -35,7 +35,6 @@ rpi/
 │   ├── eink.py           # luma.epd + Pillow display driver
 │   ├── homeassistant.py  # HA REST client (requests)
 │   ├── prices.py         # Price data + slot math (Pico nordpool.py, adapted to ENTSO-E)
-│   ├── timezone.py       # UTC↔local via zoneinfo
 │   ├── scheduler.py      # Interval loop
 │   ├── healthcheck.py    # HA + price data health checks
 │   └── exceptions.py     # Typed error hierarchy
@@ -71,12 +70,14 @@ and should be adjusted to match actual wiring.
 Replace `mrequests.get()` with `requests.get()`. Response parsing and error handling
 are identical.
 
-### timezone.py — stdlib replacement
+### timezone.py — Deleted
 
-Replace the manual DST transition arithmetic with `zoneinfo.ZoneInfo` (stdlib since
-Python 3.9). `now_utc()` and `format_local_time()` keep their signatures.
-`parse_iso_timestamp()` uses `datetime.fromisoformat()`. The timezone name comes from
-`config.json` as before; `ZoneInfo` resolves it against the system tz database.
+*Revised 2026-10-30.* The OS owns the clock (network time) and the local time zone
+(`/etc/localtime`, including DST), and ENTSO-E timestamps are UTC. So no time zone code
+or config is needed: `prices.py` and `scheduler.py` use `time.time()`,
+`datetime.fromisoformat(...).timestamp()` and
+`time.strftime('%H:%M', time.localtime(ts))` directly. The Pi's time zone must be set
+correctly (see `rpi/README.md`).
 
 ### wifi.py — Deleted
 
@@ -87,7 +88,7 @@ Networking is owned by the OS (NetworkManager / dhcpcd). No Python WiFi manageme
 ```text
 systemd (after network-online.target)
   └─ python3 src/main.py
-       ├─ construct Config, LocalTimezone, Display, HomeAssistant,
+       ├─ construct Config, Display, HomeAssistant,
        │  Prices, HealthChecker, TaskScheduler  (once, before loop)
        └─ loop forever:
             scheduler.run()       ← does not return under normal operation
@@ -104,7 +105,7 @@ The outer loop in `main.py` only handles transient HA/price data failures.
 |--------|--------|
 | `eink.py` | Full rewrite (luma.epd + Pillow) |
 | `homeassistant.py` | `mrequests` → `requests` |
-| `timezone.py` | Manual DST → `zoneinfo` |
+| `timezone.py` | Deleted; the OS local time zone is used directly |
 | `main.py` | Remove WiFi/NTP steps; simplify outer loop |
 | `scheduler.py` | Remove `six_hour_task` (NTP sync) |
 | `healthcheck.py` | Remove WiFi check |
@@ -132,17 +133,16 @@ search are unchanged.
 
 ## Configuration
 
-`config.json` follows the same schema as the Pico with two changes:
+`config.json` follows the same schema as the Pico with these changes:
 
 1. The `wifi` section is removed.
-2. A `display` section is added for GPIO pin assignments (optional; defaults to
+2. The `timezone` section is removed (the OS time zone is used).
+3. `nordpool` is renamed `prices` and points at the ENTSO-E sensor.
+4. A `display` section is added for GPIO pin assignments (optional; defaults to
    Waveshare's standard RPi wiring):
 
 ```json
 {
-  "timezone": {
-    "name": "Europe/Helsinki"
-  },
   "homeassistant": {
     "url": "http://homeassistant.local:8123",
     "token": "your-long-lived-access-token-here",

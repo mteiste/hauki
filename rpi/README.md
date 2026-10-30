@@ -30,7 +30,27 @@ sudo sh -c 'umask 337; echo "mte ALL=(ALL) NOPASSWD: ALL" > /tmp/010_mte-nopassw
 
 Undo: `sudo rm /etc/sudoers.d/010_mte-nopasswd`
 
-### 2. System packages
+### 2. Time zone and clock
+
+HAUKI has no time zone setting of its own. Prices arrive with UTC timestamps, and the
+"@ HH:MM" times on the display are converted with the OS local time zone
+(`/etc/localtime`), including DST. The Pi must be set to the local zone and keep its
+clock synchronised:
+
+```bash
+sudo timedatectl set-timezone Europe/Helsinki
+timedatectl
+```
+
+`timedatectl` should show `Time zone: Europe/Helsinki (EET, +0200)` (EEST, +0300 in
+summer) and `System clock synchronized: yes`. The Pi has no battery-backed clock, so
+it relies on network time (`systemd-timesyncd`, enabled by default). At boot,
+timesyncd restores the last known time, so until the first sync the clock is behind
+and the displayed price can briefly be for the wrong slot.
+
+Don't set `TZ` in the service environment: it would override `/etc/localtime`.
+
+### 3. System packages
 
 ```bash
 sudo apt update
@@ -51,7 +71,7 @@ Already installed on the stock image and used by HAUKI: `python3-venv`,
 > GPIO access has to go through the kernel GPIO character device (`/dev/gpiochip0`),
 > e.g. with `lgpio`.
 
-### 3. Boot configuration: SPI on, graphics off
+### 4. Boot configuration: SPI on, graphics off
 
 Edit `/boot/firmware/config.txt` (keep a backup copy):
 
@@ -91,7 +111,7 @@ Changes against the stock file:
 - With `gpu_mem=16` the firmware loads the cut-down `start_cd.elf`. Check that it
   exists in `/boot/firmware/`.
 
-### 4. Block the VideoCore camera/codec modules
+### 5. Block the VideoCore camera/codec modules
 
 The cut-down firmware lacks the GPU services these drivers need. Without this step
 they load anyway and log `Failed to open VCHI service` errors at boot.
@@ -109,7 +129,7 @@ they load anyway and log `Failed to open VCHI service` errors at boot.
 `blacklist` alone only stops automatic loading. The `install … /bin/false` lines also
 stop the modules from being loaded as dependencies.
 
-### 5. Reboot and verify
+### 6. Reboot and verify
 
 ```bash
 sudo reboot
@@ -125,7 +145,7 @@ lsmod | grep -E 'vc4|mmal|vc_sm'     # no output
 sudo dmesg | grep -i vchi            # no output
 ```
 
-### 6. Reduce SD card writes
+### 7. Reduce SD card writes
 
 Stock trixie already does the usual things:
 
@@ -163,7 +183,7 @@ sudo apt update && sudo apt upgrade
 Undo: `sudo systemctl enable --now apt-daily.timer apt-daily-upgrade.timer` and
 `sudo rm /etc/rpi/swap.conf.d/hauki.conf && sudo systemctl daemon-reload`.
 
-### 7. Service user
+### 8. Service user
 
 HAUKI runs as a dedicated system user, `hauki`. It has no home or login shell, and is
 in the `spi` and `gpio` groups, which own `/dev/spidev0.*` and `/dev/gpiochip0`:
