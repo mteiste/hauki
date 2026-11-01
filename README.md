@@ -1,9 +1,9 @@
 # HAUKI - Home Assistant Update Kiosk Interface
 
 HAUKI fetches electricity spot prices from Home Assistant and shows the current price
-and the cheapest 1h, 2h and 4h windows ahead on a Waveshare 2.13" V4 e-paper display,
-driven by a Raspberry Pi 1A+. It makes it easy to pick the best time to run
-high-consumption appliances like washing machines, dishwashers, or ovens.
+and your choice of average prices and cheapest time windows on a Waveshare 2.13" V4
+e-paper display, driven by a Raspberry Pi 1A+. It makes it easy to pick the best time
+to run high-consumption appliances like washing machines, dishwashers, or ovens.
 
 Prices come from the Home Assistant
 [ENTSO-E integration](https://github.com/mteiste/entsoe-prices)
@@ -243,14 +243,28 @@ should be readable only by its owner and the `hauki` group.
 Set `prices.metering_interval` to match how your electricity meter reports
 consumption to the provider:
 
-| Value | Meter | Cheapest 1h/2h/4h windows start |
-|-------|-------|---------------------------------|
+| Value | Meter | Next hour and cheapest windows start |
+|-------|-------|--------------------------------------|
 | `900` | Quarter-hour metering | at any quarter (:00, :15, :30, :45) |
 | `3600` | Hourly metering | on the hour only, because each whole hour is billed at its average price |
 
 With hourly metering the large number is the current hour's average price (what this
 hour's consumption is billed at), and the current 15-minute price is shown small in
 the top-right corner, under the time slot.
+
+`display.boxes` picks what the three boxes at the bottom show, left to right
+(default `["next_hour", "today", "tomorrow"]`):
+
+| Item | Box shows |
+|------|-----------|
+| `next_hour` | Average price of the next hour |
+| `today` | Average price of the whole local day |
+| `tomorrow` | Average price of tomorrow's whole local day |
+| `cheapest_1h`, `cheapest_2h`, `cheapest_4h` | Start time and average price of the cheapest window in the next 24 hours |
+
+A box shows `--` until all of its prices are published, which for `tomorrow` is
+normally early in the afternoon. A wrong value in `display.boxes` shows on the error
+screen.
 
 ## Installing the Service
 

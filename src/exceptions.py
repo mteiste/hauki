@@ -18,3 +18,7 @@ class NoHomeAssistantError(HaukiError):
 class NoPricesError(HaukiError):
     def __init__(self, detail=""):
         super().__init__("Could not fetch prices", detail)
+
+
+class ConfigError(HaukiError):
+    pass

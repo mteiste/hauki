@@ -7,8 +7,11 @@ import time
 from PIL import Image, ImageDraw, ImageFont
 
 from epd import EPD, HEIGHT, WIDTH, image_to_buffer
+from exceptions import ConfigError
 
 FONT_PATH_DEFAULT = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+BOX_ITEMS_DEFAULT = ('next_hour', 'today', 'tomorrow')
+BOX_COUNT = 3
 
 
 class Display:
@@ -31,6 +34,7 @@ class Display:
         self.epd = epd
         # The header shows the current slot, so it uses the same slot length as prices
         self.slot_duration = config.price_settings().get('slot_duration', 900)
+        self.box_items = cfg.get('boxes', BOX_ITEMS_DEFAULT)
         font_path = cfg.get('font_path', FONT_PATH_DEFAULT)
         self.font42 = ImageFont.truetype(font_path, 42)
         self.font28 = ImageFont.truetype(font_path, 28)
@@ -61,13 +65,17 @@ class Display:
         draw.line((0, 16, WIDTH - 1, 16), fill=0)
         return image, draw
 
-    def show_price(self, current_price, unit, cheapest_1h, cheapest_2h, cheapest_4h,
-                   slot_price=None):
+    def show_price(self, current_price, unit, boxes, slot_price=None):
         """Args:
             current_price: Price billed for the current metering period
+            boxes: (label, time_string, price) for each bottom box, left to right.
+                time_string is None when the item has none, price when it is not known.
             slot_price: Current slot price, only when it differs in meaning from
                 current_price (metering period longer than the price slot)
         """
+        if len(boxes) != BOX_COUNT:
+            raise ConfigError(f"Set {BOX_COUNT} display boxes", f"{len(boxes)} configured")
+
         image, draw = self._new_image(unit)
 
         # Positioned by baseline. Prices are always the largest text, so the most
@@ -78,15 +86,19 @@ class Display:
         if slot_price is not None:
             draw.text((WIDTH - 1, 30), f"{slot_price:.2f}", font=self.font13, fill=0, anchor='rs')
 
-        windows = (('1h', cheapest_1h), ('2h', cheapest_2h), ('4h', cheapest_4h))
-        for i, (label, (time_str, avg_price)) in enumerate(windows):
+        for i, (label, time_str, price) in enumerate(boxes):
             # Three 82 px boxes with 2 px gaps fill the 250 px width
             left = i * 84
             right = left + 81
             draw.rectangle((left, 85, right, HEIGHT - 1), outline=0)
-            draw.text((left + 3, 98), label, font=self.font13, fill=0, anchor='ls')
-            draw.text((right - 3, 98), time_str, font=self.font13, fill=0, anchor='rs')
-            draw.text(((left + right) // 2, 118), f"{avg_price:.2f}", font=self.font21, fill=0, anchor='ms')
+            centre = (left + right) // 2
+            if time_str is None:
+                draw.text((centre, 98), label, font=self.font13, fill=0, anchor='ms')
+            else:
+                draw.text((left + 3, 98), label, font=self.font13, fill=0, anchor='ls')
+                draw.text((right - 3, 98), time_str, font=self.font13, fill=0, anchor='rs')
+            value = '--' if price is None else f"{price:.2f}"
+            draw.text((centre, 118), value, font=self.font21, fill=0, anchor='ms')
 
         self.epd.display(image_to_buffer(image))
 
