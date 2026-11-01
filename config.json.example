@@ -14,6 +14,7 @@
     "rst_pin": 17,
     "dc_pin": 25,
     "busy_pin": 24,
+    "boxes": ["next_hour", "today", "tomorrow"],
     "font_path": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
   }
 }

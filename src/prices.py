@@ -5,6 +5,10 @@ Retrieves electricity price data from the Home Assistant ENTSO-E integration
 import time
 from datetime import datetime
 
+from exceptions import ConfigError
+
+CHEAPEST_WINDOW_HOURS = {'cheapest_1h': 1, 'cheapest_2h': 2, 'cheapest_4h': 4}
+
 
 class Prices:
     """Electricity price client.
@@ -33,6 +37,7 @@ class Prices:
         self.prices_start_utc = None
         self.last_update_timestamp = None
         self.unit = None
+        self.tomorrow_valid = False
         self._refresh_error = None
 
     def _get_slot(self, timestamp):
@@ -71,6 +76,7 @@ class Prices:
 
         attrs = state.get('attributes', {})
         self.unit = attrs.get('unit_of_measurement', 'c/kWh')
+        self.tomorrow_valid = attrs.get('tomorrow_valid', False)
 
         # raw_tomorrow is used regardless of tomorrow_valid: ENTSO-E publishes
         # the first slots of the next local day with today's auction, and every
@@ -189,6 +195,53 @@ class Prices:
         seconds_since_midnight = local.tm_hour * 3600 + local.tm_min * 60 + local.tm_sec
         return seconds_since_midnight % self.metering_interval == 0
 
+    def _average(self, first_slot, num_slots):
+        # None unless every slot of the range has a price
+        slots = self.prices[first_slot:first_slot + num_slots]
+        if first_slot == 0 or len(slots) < num_slots:
+            return None
+        return sum(slots) / num_slots  # type: ignore
+
+    def get_next_hour_price(self):
+        """Get the average price of the hour following the current metering period.
+
+        The hour starts with the next metering period, so with hourly metering it is
+        the next whole hour, billed at exactly this price.
+
+        Returns:
+            float: Price in cents/kWh, or None if the hour is not fully covered
+        """
+        slot = self._get_slot(time.time())
+        if slot == 0:
+            return None
+        slot += 1
+        while slot < len(self.prices) and not self._starts_metering_period(slot):
+            slot += 1
+        return self._average(slot, 3600 // self.slot_duration)
+
+    def get_day_average(self, days_ahead=0):
+        """Get the average price of a local calendar day.
+
+        Tomorrow counts only once the sensor marks it valid: ENTSO-E publishes the first
+        slots of the next local day with today's auction, long before the rest is known.
+
+        Args:
+            days_ahead: 0 for today, 1 for tomorrow
+
+        Returns:
+            float: Price in cents/kWh, or None if the day is not fully covered
+        """
+        if days_ahead and not self.tomorrow_valid:
+            return None
+        now = time.localtime(time.time())
+        # mktime normalises the day overflow and picks DST, so a day of 23 or 25 hours
+        # gets its real length
+        start, end = (
+            time.mktime((now.tm_year, now.tm_mon, now.tm_mday + days, 0, 0, 0, 0, 0, -1))
+            for days in (days_ahead, days_ahead + 1)
+        )
+        return self._average(self._get_slot(start), int((end - start) / self.slot_duration))
+
     def find_cheapest_window(self, hours):
         """Find next cheapest continuous time window within 24 hours.
 
@@ -249,3 +302,24 @@ class Prices:
         average_price = min_sum / num_slots
 
         return (time_string, average_price)
+
+    def get_box(self, item):
+        """Get what a display box shows.
+
+        Args:
+            item: 'next_hour', 'today', 'tomorrow', 'cheapest_1h', 'cheapest_2h'
+                  or 'cheapest_4h'
+
+        Returns:
+            tuple: (label, time_string or None, price or None)
+        """
+        if item == 'next_hour':
+            return ('Next hour', None, self.get_next_hour_price())
+        if item == 'today':
+            return ('Today', None, self.get_day_average())
+        if item == 'tomorrow':
+            return ('Tomorrow', None, self.get_day_average(days_ahead=1))
+        if item in CHEAPEST_WINDOW_HOURS:
+            hours = CHEAPEST_WINDOW_HOURS[item]
+            return (f'{hours}h', *(self.find_cheapest_window(hours) or (None, None)))
+        raise ConfigError("Unknown display box", str(item))
