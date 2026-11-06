@@ -29,6 +29,10 @@ class Prices:
         self.entity_id = settings['entity_id']
         self.slot_duration = settings.get('slot_duration', 900)
         self.refresh_interval = settings.get('refresh_interval', 14400)
+        # Shorter interval used while tomorrow's prices are not yet valid, so they
+        # show up soon after Home Assistant gets them instead of up to
+        # refresh_interval later
+        self.tomorrow_refresh_interval = settings.get('tomorrow_refresh_interval', 900)
         # How the meter reports consumption to the electricity provider: 900 for
         # quarter-hour metering, 3600 for hourly. With hourly metering each whole hour
         # is billed at its average price, so windows have to start on the hour.
@@ -154,7 +158,10 @@ class Prices:
             return self._refresh()
 
         time_since_update = current_utc - self.last_update_timestamp
-        if time_since_update >= self.refresh_interval:
+        interval = self.refresh_interval
+        if not self.tomorrow_valid:
+            interval = min(interval, self.tomorrow_refresh_interval)
+        if time_since_update >= interval:
             return self._refresh()
 
         return True

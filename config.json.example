@@ -8,7 +8,8 @@
     "entity_id": "sensor.electricity_price",
     "slot_duration": 900,
     "metering_interval": 900,
-    "refresh_interval": 14400
+    "refresh_interval": 14400,
+    "tomorrow_refresh_interval": 900
   },
   "display": {
     "rst_pin": 17,
